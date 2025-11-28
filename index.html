@@ -384,7 +384,7 @@
             const isEditing = activeEditId === sample.id;
 
             // 用 JSON.stringify 包裝 sample.content 並使用反引號模板，確保內容能正確傳遞給 translateSample 函式
-            const escapedContent = JSON.stringify(sample.content_ch || "").slice(1, -1).replace(/\\/g, '\\\\').replace(/'/g, '\\\'');
+            const escapedContent = JSON.stringify(sample.content).slice(1, -1).replace(/\\/g, '\\\\').replace(/'/g, '\\\'');
 
             // 修正：使用 .trim() 移除首尾空白和空行，解決首段落空位問題
             const displayContent = (sample.content_ch || "").trim().replace(/\n/g, '<br>');
@@ -398,14 +398,14 @@
                             <h3 class="text-xl font-bold text-gray-800">${sample.title}</h3>
                         `}
                         <div class="flex-shrink-0 ml-4 flex space-x-2">
-                            ${!isEditing ? `
-                            <button onclick="window.app.copyText('${sample.id}', 'ch')" class="text-white bg-blue-400 hover:bg-blue-500 p-2 rounded-full shadow-md transition duration-150" title="複製中文">
-                                <i data-lucide="copy" class="lucide-icon w-4 h-4"></i>
-                            </button>
-                            <button onclick="window.app.copyText('${sample.id}', 'en')" class="text-white bg-green-400 hover:bg-green-500 p-2 rounded-full shadow-md transition duration-150" title="複製英文">
-                                <i data-lucide="languages" class="lucide-icon w-4 h-4"></i>
-                            </button>
-                            ` : ''}
+                                ${!isEditing ? `
+                                <button onclick="window.app.copyText('${sample.id}', 'ch')" class="text-white bg-blue-400 hover:bg-blue-500 p-2 rounded-full shadow-md transition duration-150" title="複製中文">
+                                    <i data-lucide="copy" class="lucide-icon w-4 h-4"></i>
+                                </button>
+                                <button onclick="window.app.copyText('${sample.id}', 'en')" class="text-white bg-green-400 hover:bg-green-500 p-2 rounded-full shadow-md transition duration-150" title="複製英文">
+                                    <i data-lucide="languages" class="lucide-icon w-4 h-4"></i>
+                                </button>
+                                ` : ''}
                             
                             <button onclick="window.app.toggleEditMode('${sample.id}')" class="text-white ${isEditing ? 'bg-green-500 hover:bg-green-600' : 'bg-indigo-500 hover:bg-indigo-600'} p-2 rounded-full shadow-md transition duration-150">
                                 <i data-lucide="${isEditing ? 'save' : 'edit'}" class="lucide-icon w-4 h-4"></i>
@@ -427,13 +427,13 @@
                     
                     ${isEditing ? `
                         
-                        <div class="flex flex-col space-y-2 h-96">
-                            <label class="text-xs font-bold text-gray-500">中文內容</label>
-                            <textarea id="edit-content-ch" class="flex-grow w-full border border-gray-300 p-2 rounded-lg resize-none focus:ring-indigo-500">${sample.content_ch || ''}</textarea>
-                            <label class="text-xs font-bold text-gray-500">英文內容</label>
-                            <textarea id="edit-content-en" class="flex-grow w-full border border-gray-300 p-2 rounded-lg resize-none focus:ring-indigo-500">${sample.content_en || ''}</textarea>
-                        </div>
-
+                            <div class="flex flex-col space-y-2 h-96">
+                                <label class="text-xs font-bold text-gray-500">中文內容</label>
+                                <textarea id="edit-content-ch" class="flex-grow w-full border border-gray-300 p-2 rounded-lg resize-none focus:ring-indigo-500">${sample.content_ch || ''}</textarea>
+                                <label class="text-xs font-bold text-gray-500">英文內容</label>
+                                <textarea id="edit-content-en" class="flex-grow w-full border border-gray-300 p-2 rounded-lg resize-none focus:ring-indigo-500">${sample.content_en || ''}</textarea>
+                            </div>
+    
                     ` : `
                         <div class="flex-grow text-gray-700 sample-content overflow-auto mb-4 border p-3 rounded-lg bg-gray-50 max-h-64">
                             ${displayContent}
@@ -552,16 +552,16 @@
         // --- 10. 啟動應用程式 ---
         window.app = {
             
-            copyText: (id, lang) => {
-                const sample = samples.find(s => s.id === id);
-                if(!sample) return;
-                const text = lang === 'ch' ? sample.content_ch : sample.content_en;
-                if(!text) return alert('該語言內容為空');
-                navigator.clipboard.writeText(text).then(() => {
-                    showModal('複製成功', (lang==='ch'?'中文':'英文') + '內容已複製到剪貼簿', 'check');
-                });
-            },
-
+                copyText: (id, lang) => {
+                    const sample = samples.find(s => s.id === id);
+                    if(!sample) return;
+                    const text = lang === 'ch' ? sample.content_ch : sample.content_en;
+                    if(!text) return alert('該語言內容為空');
+                    navigator.clipboard.writeText(text).then(() => {
+                        showModal('複製成功', (lang==='ch'?'中文':'英文') + '內容已複製到剪貼簿', 'check');
+                    });
+                },
+    
             setCategoryFilter,
             toggleEditMode,
             createNewSample,
@@ -631,7 +631,7 @@
     
     <!-- 新增樣本模態框 (Add Sample Modal) -->
     <div id="add-sample-modal" class="custom-modal fixed inset-0 z-40 flex items-center justify-center bg-black bg-opacity-70 opacity-0 pointer-events-none" onclick="window.app.hideAddSampleModal()">
-        <div class="bg-white p-6 rounded-xl shadow-2xl max-w-4xl w-full transform transition-all duration-300 modal-content-transition scale-90" onclick="event.stopPropagation()">
+        <div class="bg-white p-6 rounded-xl shadow-2xl max-w-4xl w-full transform transition-all duration-300 modal-content-transition scale-90 max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation()">
             <div class="flex justify-between items-center mb-4 border-b pb-3">
                 <h2 class="text-2xl font-extrabold text-indigo-800 flex items-center">
                     <i data-lucide="pen-tool" class="lucide-icon w-6 h-6 mr-2"></i>
@@ -658,12 +658,12 @@
                     
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1">中文內容 (Chinese Content)</label>
-                        <textarea id="new-content-ch" class="w-full h-64 border border-gray-300 p-3 rounded-lg resize-none focus:ring-indigo-500 focus:border-indigo-500 transition shadow-sm" placeholder="在這裡輸入或貼上您的文字內容..."></textarea>
+                        textarea id="new-content-ch" class="w-full h-32 border border-gray-300 p-3 rounded-lg resize-none focus:ring-indigo-500 focus:border-indigo-500 transition shadow-sm" placeholder="在這裡輸入或貼上您的文字內容..."></textarea>
                     </div>
-                    <div class="mt-4">
-                        <label class="block text-sm font-medium text-gray-700 mb-1">英文內容 (English Content)</label>
-                        <textarea id="new-content-en" class="w-full h-64 border border-gray-300 p-3 rounded-lg resize-none focus:ring-indigo-500 focus:border-indigo-500 transition shadow-sm" placeholder="Enter or paste your English text here..."></textarea>
-                    </div>
+                        <div class="mt-4">
+                            <label class="block text-sm font-medium text-gray-700 mb-1">英文內容 (English Content)</label>
+                            <textarea id="new-content-en" class="w-full h-32 border border-gray-300 p-3 rounded-lg resize-none focus:ring-indigo-500 focus:border-indigo-500 transition shadow-sm" placeholder="Enter or paste your English text here..."></textarea>
+                        </div>
                 </div>
                 
                 <div class="col-span-1 bg-gray-50 p-4 rounded-lg border border-gray-200">
