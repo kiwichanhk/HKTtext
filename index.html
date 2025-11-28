@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>文字樣本與作品集</title>
+    <!-- 載入 Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 載入 Lucide Icons (用於美觀圖標) -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&family=Noto+Sans+TC:wght@100..900&display=swap');
+        body {
+            font-family: 'Noto Sans TC', 'Inter', sans-serif;
+            background-color: #f7f7f9;
+        }
+        .sample-content {
+            white-space: pre-wrap; /* 保留換行和空格 */
+        }
+        /* Custom modal for alerts/prompts */
+        .custom-modal {
+            transition: opacity 0.3s ease-in-out;
+        }
+        .lucide {
+            width: 1.25rem;
+            height: 1.25rem;
+        }
+    </style>
+    <!-- Firebase Imports -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, getDoc, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, collection, query, where, getDocs, serverTimestamp, orderBy } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // IMPORTANT: Firestore uses logging to console.
+        setLogLevel('Debug');
+        
+        // --- 1. 全域變數和初始化 ---
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        let app, db, auth, userId = null;
+        let samples = [];
+        let currentCategoryFilter = '全部'; // 預設篩選器
+        let activeEditId = null; // 當前正在編輯的樣本ID
+
+        // 檢查 Firebase 配置是否存在
+        if (firebaseConfig) {
+            app = initializeApp(firebaseConfig);
+            db = getFirestore(app);
+            auth = getAuth(app);
+        } else {
+            console.error("Firebase configuration is missing. Data persistence will not work.");
+            document.getElementById('app-container').innerHTML = `
+                <div class="p-6 bg-red-100 border border-red-400 text-red-700 rounded-lg max-w-lg mx-auto mt-10">
+                    <p class="font-bold">設定錯誤</p>
+                    <p>無法載入 Firebase 配置。請檢查環境變數。</p>
+                </div>
+            `;
+            // 修正: 移除在模組頂層範圍的非法 'return;' 語句。
+        }
+
+        // --- 2. 認證與使用者設定 ---
+        const signInAndListen = async () => {
+            try {
+                if (initialAuthToken) {
+                    await signInWithCustomToken(auth, initialAuthToken);
+                } else {
+                    await signInAnonymously(auth);
+                }
+            } catch (error) {
+                console.error("Firebase Authentication failed:", error);
+                // 由於 auth 可能為 null，這裡需要確保它存在
+                if (auth) {
+                    await signInAnonymously(auth); // Fallback to anonymous
+                }
+            }
+
+            // 監聽認證狀態變化
+            onAuthStateChanged(auth, (user) => {
+                if (user) {
+                    userId = user.uid;
+                    document.getElementById('user-info').innerHTML = `
+                        <p class="text-sm text-gray-600 truncate" title="${userId}">
+                            使用者 ID: <span class="font-mono">${userId}</span>
+                        </p>
+                    `;
+                    console.log("User signed in with ID:", userId);
+                    // 認證完成後開始監聽資料
+                    if (db) {
+                        listenForSamples();
+                    }
+                } else {
+                    // This should generally not happen after the initial sign-in
+                    console.log("User signed out or failed to sign in.");
+                }
+            });
+        };
+        
+        // --- 3. Firestore 資料操作 ---
+
+        // 取得資料庫參考路徑
+        const getSamplesCollectionRef = () => {
+            if (!userId) {
+                console.error("User ID is not set. Cannot get collection reference.");
+                return null;
+            }
+            // 私人資料路徑: /artifacts/{appId}/users/{userId}/text_samples
+            return collection(db, `artifacts/${appId}/users/${userId}/text_samples`);
+        };
+
+        // 實時監聽資料
+        const listenForSamples = () => {
+            const colRef = getSamplesCollectionRef();
+            if (!colRef) return;
+
+            // 注意: Firestore orderBy() 在沒有 Index 的情況下會報錯。
+            // 我們先獲取所有文件，然後在客戶端排序。
+            const q = query(colRef);
+            
+            onSnapshot(q, (snapshot) => {
+                samples = snapshot.docs.map(doc => ({
+                    id: doc.id,
+                    ...doc.data()
+                }));
+                // 在客戶端按時間戳降序排序
+                samples.sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0));
+                
+                renderUI();
+                console.log("Samples updated:", samples.length);
+            }, (error) => {
+                console.error("Error listening to Firestore:", error);
+                showModal('錯誤', '無法連接到資料庫，請檢查您的網路連線。');
+            });
+        };
+
+        // 新增/儲存樣本
+        const saveSample = async (data) => {
+            const colRef = getSamplesCollectionRef();
+            if (!colRef) return;
+
+            try {
+                if (data.id) {
+                    // 更新現有文件
+                    const docRef = doc(colRef, data.id);
+                    await updateDoc(docRef, {
+                        title: data.title,
+                        content: data.content,
+                        category: data.category,
+                        timestamp: serverTimestamp() // 更新時間戳
+                    });
+                    showModal('成功', '樣本已成功更新！', 'check-circle');
+                } else {
+                    // 新增文件
+                    await addDoc(colRef, {
+                        title: data.title || '無標題樣本',
+                        content: data.content || '',
+                        category: data.category || '未分類',
+                        timestamp: serverTimestamp()
+                    });
+                    showModal('成功', '新的文字樣本已建立！', 'plus-circle');
+                }
+            } catch (error) {
+                console.error("Error saving sample:", error);
+                showModal('錯誤', `儲存失敗: ${error.message}`);
+            }
+        };
+
+        // 刪除樣本
+        const deleteSample = async (id) => {
+            if (!id) return;
+            const colRef = getSamplesCollectionRef();
+            if (!colRef) return;
+
+            try {
+                const docRef = doc(colRef, id);
+                await deleteDoc(docRef);
+                showModal('刪除成功', '文字樣本已移除。', 'trash-2');
+            } catch (error) {
+                console.error("Error deleting sample:", error);
+                showModal('錯誤', `刪除失敗: ${error.message}`);
+            }
+        };
+        
+        // --- 4. 輔助函式與 UI 邏輯 ---
+
+        // 顯示自定義模態框 (用於代替 alert/confirm)
+        const showModal = (title, message, icon = 'info') => {
+            const modal = document.getElementById('custom-modal');
+            document.getElementById('modal-title').textContent = title;
+            document.getElementById('modal-message').textContent = message;
+            
+            // 設定圖標
+            const iconHtml = `<i data-lucide="${icon}" class="lucide-icon text-indigo-600 w-6 h-6 mr-2"></i>`;
+            document.getElementById('modal-icon-container').innerHTML = iconHtml;
+            lucide.createIcons(); // 重新渲染 Lucide 圖標
+
+            modal.classList.remove('opacity-0', 'pointer-events-none');
+            modal.classList.add('opacity-100');
+
+            // 5秒後自動關閉
+            setTimeout(() => {
+                hideModal();
+            }, 5000);
+        };
+
+        const hideModal = () => {
+            const modal = document.getElementById('custom-modal');
+            modal.classList.remove('opacity-100');
+            modal.classList.add('opacity-0', 'pointer-events-none');
+        };
+
+        // 處理刪除確認
+        const handleDeleteClick = (id) => {
+            const modal = document.getElementById('confirm-modal');
+            
+            document.getElementById('confirm-message').textContent = '您確定要永久刪除此文字樣本嗎？此操作無法撤銷。';
+            
+            const confirmBtn = document.getElementById('confirm-action-btn');
+            confirmBtn.onclick = () => {
+                deleteSample(id);
+                hideConfirmModal();
+            };
+
+            modal.classList.remove('opacity-0', 'pointer-events-none');
+            modal.classList.add('opacity-100');
+        };
+
+        const hideConfirmModal = () => {
+            const modal = document.getElementById('confirm-modal');
+            modal.classList.remove('opacity-100');
+            modal.classList.add('opacity-0', 'pointer-events-none');
+        };
+
+        // 切換編輯模式
+        const toggleEditMode = (id) => {
+            const sampleCard = document.getElementById(`sample-${id}`);
+            if (!sampleCard) return;
+
+            const isCurrentlyEditing = activeEditId === id;
+
+            if (isCurrentlyEditing) {
+                // 儲存邏輯
+                const titleInput = sampleCard.querySelector('#edit-title');
+                const contentInput = sampleCard.querySelector('#edit-content');
+                const categorySelect = sampleCard.querySelector('#edit-category');
+                
+                const updatedSample = {
+                    id: id,
+                    title: titleInput.value,
+                    content: contentInput.value,
+                    category: categorySelect.value
+                };
+                
+                saveSample(updatedSample);
+                activeEditId = null;
+
+            } else {
+                // 進入編輯模式
+                if (activeEditId) {
+                    // 如果有其他卡片正在編輯，先取消其編輯模式 (簡單做法是強制刷新 UI)
+                    activeEditId = null;
+                    renderUI(); 
+                }
+                activeEditId = id;
+            }
+            // 重新渲染以應用編輯狀態變化
+            renderUI();
+        };
+
+        // 篩選器切換
+        const setCategoryFilter = (category) => {
+            currentCategoryFilter = category;
+            renderUI();
+        };
+
+        // 取得所有唯一的分類
+        const getCategories = () => {
+            const categorySet = new Set(samples.map(s => s.category).filter(c => c));
+            return ['全部', ...Array.from(categorySet)].sort();
+        };
+
+        // 渲染單個樣本卡片
+        const renderSampleCard = (sample) => {
+            const date = sample.timestamp ? new Date(sample.timestamp.seconds * 1000).toLocaleString('zh-TW', {
+                year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit'
+            }) : '尚未儲存';
+
+            const categories = getCategories();
+            const categoryOptions = categories.filter(c => c !== '全部').map(cat => 
+                `<option value="${cat}" ${sample.category === cat ? 'selected' : ''}>${cat}</option>`
+            ).join('');
+            // 加入當前樣本的分類，以防它不在主列表裡
+            if (!categories.includes(sample.category) && sample.category) {
+                 categoryOptions.unshift(`<option value="${sample.category}" selected>${sample.category}</option>`);
+            }
+            
+            // 編輯模式下的分類選擇器
+            const editCategorySelect = `
+                <select id="edit-category" class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-indigo-500 focus:border-indigo-500 block w-full p-2.5">
+                    ${categoryOptions}
+                    <option value="未分類" ${sample.category === '未分類' ? 'selected' : ''}>未分類</option>
+                </select>
+            `;
+
+            const isEditing = activeEditId === sample.id;
+
+            return `
+                <div id="sample-${sample.id}" class="bg-white p-6 rounded-xl shadow-lg hover:shadow-xl transition duration-300 flex flex-col h-full border-t-4 border-indigo-500">
+                    <div class="flex justify-between items-start mb-4">
+                        ${isEditing ? `
+                            <input id="edit-title" value="${sample.title}" class="text-xl font-bold text-gray-800 w-full border-b border-gray-300 p-1 mb-2 focus:outline-none focus:border-indigo-500">
+                        ` : `
+                            <h3 class="text-xl font-bold text-gray-800">${sample.title}</h3>
+                        `}
+                        <div class="flex-shrink-0 ml-4">
+                            <button onclick="window.app.toggleEditMode('${sample.id}')" class="text-white ${isEditing ? 'bg-green-500 hover:bg-green-600' : 'bg-indigo-500 hover:bg-indigo-600'} p-2 rounded-full shadow-md transition duration-150">
+                                <i data-lucide="${isEditing ? 'save' : 'edit'}" class="lucide-icon w-4 h-4"></i>
+                            </button>
+                            ${isEditing ? '' : `
+                                <button onclick="window.app.handleDeleteClick('${sample.id}')" class="ml-2 text-white bg-red-500 hover:bg-red-600 p-2 rounded-full shadow-md transition duration-150">
+                                    <i data-lucide="trash-2" class="lucide-icon w-4 h-4"></i>
+                                </button>
+                            `}
+                        </div>
+                    </div>
+
+                    <div class="mb-4 text-sm font-medium text-indigo-600 flex items-center">
+                        <i data-lucide="tag" class="lucide-icon w-4 h-4 mr-1"></i>
+                        ${isEditing ? editCategorySelect : `
+                            <span class="px-3 py-1 bg-indigo-100 text-indigo-700 rounded-full text-xs font-semibold">${sample.category}</span>
+                        `}
+                    </div>
+                    
+                    ${isEditing ? `
+                        <textarea id="edit-content" class="flex-grow w-full h-48 border border-gray-300 p-3 rounded-lg resize-y focus:ring-indigo-500 focus:border-indigo-500 text-gray-700">${sample.content}</textarea>
+                    ` : `
+                        <div class="flex-grow text-gray-700 sample-content overflow-auto mb-4 border p-3 rounded-lg bg-gray-50 max-h-64">
+                            ${sample.content.replace(/\n/g, '<br>')}
+                        </div>
+                    `}
+
+                    <p class="text-xs text-gray-500 mt-auto pt-2 border-t border-gray-100">
+                        最後編輯於: ${date}
+                    </p>
+                </div>
+            `;
+        };
+
+        // 渲染新增樣本表單
+        const renderNewSampleForm = () => {
+            const categories = getCategories();
+            const categoryOptions = categories.filter(c => c !== '全部').map(cat => 
+                `<option value="${cat}">${cat}</option>`
+            ).join('');
+
+            return `
+                <div class="bg-indigo-50 p-6 rounded-xl shadow-lg border-2 border-dashed border-indigo-300 mb-8">
+                    <h2 class="text-2xl font-extrabold text-indigo-700 mb-4 flex items-center">
+                        <i data-lucide="plus-square" class="lucide-icon w-6 h-6 mr-2"></i>
+                        新增文字樣本
+                    </h2>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                        <div class="md:col-span-2">
+                            <label for="new-title" class="block text-sm font-medium text-gray-700">標題</label>
+                            <input type="text" id="new-title" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-3 focus:border-indigo-500 focus:ring-indigo-500" placeholder="輸入樣本標題">
+                        </div>
+                        <div>
+                            <label for="new-category" class="block text-sm font-medium text-gray-700">分類</label>
+                            <select id="new-category" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-3 focus:border-indigo-500 focus:ring-indigo-500">
+                                <option value="未分類">未分類</option>
+                                ${categoryOptions}
+                                <option value="新增分類">--- 新增分類 ---</option>
+                            </select>
+                        </div>
+                    </div>
+                    <label for="new-content" class="block text-sm font-medium text-gray-700 mb-1">內容</label>
+                    <textarea id="new-content" rows="6" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-3 focus:border-indigo-500 focus:ring-indigo-500" placeholder="在此輸入您的文字內容..."></textarea>
+                    
+                    <button onclick="window.app.createNewSample()" class="mt-4 w-full md:w-auto inline-flex items-center justify-center px-6 py-3 border border-transparent text-base font-medium rounded-full shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition duration-150">
+                        <i data-lucide="send" class="lucide-icon w-5 h-5 mr-2"></i>
+                        儲存樣本
+                    </button>
+                </div>
+            `;
+        };
+
+        // 處理新增樣本的點擊事件
+        const createNewSample = () => {
+            const titleInput = document.getElementById('new-title');
+            const contentInput = document.getElementById('new-content');
+            const categorySelect = document.getElementById('new-category');
+            
+            let category = categorySelect.value;
+            
+            if (category === '新增分類') {
+                // 使用原生的 prompt 函數可能會被瀏覽器阻止，但由於這裡是開發環境，暫時保留
+                const newCat = prompt('請輸入新的分類名稱:');
+                if (newCat && newCat.trim()) {
+                    category = newCat.trim();
+                } else {
+                    category = '未分類';
+                }
+            }
+            
+            const newSample = {
+                title: titleInput.value || '無標題樣本',
+                content: contentInput.value || '',
+                category: category
+            };
+
+            if (!newSample.content.trim()) {
+                showModal('注意', '內容不能為空！', 'alert-triangle');
+                return;
+            }
+
+            saveSample(newSample).then(() => {
+                // 清空表單
+                titleInput.value = '';
+                contentInput.value = '';
+                categorySelect.value = '未分類';
+            });
+        };
+
+        // 主渲染函式
+        const renderUI = () => {
+            const samplesContainer = document.getElementById('samples-container');
+            const filterContainer = document.getElementById('filter-container');
+            const newSampleFormContainer = document.getElementById('new-sample-form-container');
+
+            // 1. 渲染新增表單
+            newSampleFormContainer.innerHTML = renderNewSampleForm();
+            
+            // 2. 處理篩選邏輯
+            const categories = getCategories();
+            const filteredSamples = currentCategoryFilter === '全部'
+                ? samples
+                : samples.filter(s => s.category === currentCategoryFilter);
+
+            // 3. 渲染分類按鈕
+            filterContainer.innerHTML = categories.map(cat => `
+                <button 
+                    onclick="window.app.setCategoryFilter('${cat}')"
+                    class="px-4 py-2 text-sm font-semibold rounded-full transition duration-150 ${currentCategoryFilter === cat 
+                        ? 'bg-indigo-600 text-white shadow-lg' 
+                        : 'bg-white text-gray-700 hover:bg-indigo-100 border border-gray-300'}"
+                >
+                    ${cat} (${cat === '全部' ? samples.length : samples.filter(s => s.category === cat).length})
+                </button>
+            `).join('');
+
+            // 4. 渲染樣本卡片
+            if (filteredSamples.length === 0) {
+                samplesContainer.innerHTML = `
+                    <div class="col-span-full text-center py-10 bg-white rounded-xl shadow-inner text-gray-500">
+                        <i data-lucide="book-open" class="lucide-icon w-12 h-12 mx-auto mb-4 text-gray-300"></i>
+                        <p class="text-lg">目前在這個分類中沒有文字樣本。</p>
+                        <p class="text-sm">點擊上方按鈕新增一個吧！</p>
+                    </div>
+                `;
+            } else {
+                samplesContainer.innerHTML = filteredSamples.map(renderSampleCard).join('');
+            }
+            
+            // 5. 渲染 Lucide 圖標
+            lucide.createIcons();
+        };
+
+        // --- 5. 啟動應用程式 ---
+        window.app = {
+            // 暴露給 HTML 呼叫的函式
+            setCategoryFilter,
+            toggleEditMode,
+            createNewSample,
+            handleDeleteClick,
+            hideConfirmModal,
+            // 供內部調用
+            saveSample,
+            renderUI
+        };
+        
+        // 修正: 只有在 Firebase 初始化成功時才呼叫 signInAndListen，避免在 auth 為 null 時拋出錯誤。
+        window.onload = () => {
+            if (auth && db) {
+                signInAndListen();
+            } else {
+                console.warn("Firebase not initialized, skipping authentication.");
+            }
+        };
+
+    </script>
+</head>
+<body class="bg-gray-50 min-h-screen">
+
+    <!-- 自定義訊息模態框 (Custom Modal) -->
+    <div id="custom-modal" class="custom-modal fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 opacity-0 pointer-events-none">
+        <div class="bg-white p-6 rounded-xl shadow-2xl max-w-sm w-full transform transition-all duration-300 scale-95" onclick="event.stopPropagation()">
+            <div class="flex items-center mb-4">
+                <span id="modal-icon-container"></span>
+                <h3 id="modal-title" class="text-lg font-bold text-gray-800">訊息</h3>
+                <button onclick="hideModal()" class="ml-auto text-gray-400 hover:text-gray-600">
+                    <i data-lucide="x" class="lucide-icon w-5 h-5"></i>
+                </button>
+            </div>
+            <p id="modal-message" class="text-gray-600 mb-4"></p>
+            <div class="flex justify-end">
+                <button onclick="hideModal()" class="px-4 py-2 bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 transition duration-150">確定</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 確認刪除模態框 (Confirm Modal) -->
+    <div id="confirm-modal" class="custom-modal fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 opacity-0 pointer-events-none">
+        <div class="bg-white p-6 rounded-xl shadow-2xl max-w-sm w-full transform transition-all duration-300 scale-95" onclick="event.stopPropagation()">
+            <div class="flex items-center mb-4">
+                <i data-lucide="alert-triangle" class="lucide-icon text-red-500 w-6 h-6 mr-2"></i>
+                <h3 class="text-lg font-bold text-gray-800">確認操作</h3>
+            </div>
+            <p id="confirm-message" class="text-gray-700 mb-6"></p>
+            <div class="flex justify-end space-x-3">
+                <button onclick="window.app.hideConfirmModal()" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition duration-150">取消</button>
+                <button id="confirm-action-btn" class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition duration-150">確認刪除</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 主要內容區塊 -->
+    <div id="app-container" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+
+        <!-- Header and User Info -->
+        <header class="mb-8 p-4 bg-white rounded-xl shadow-md flex justify-between items-center flex-wrap gap-4">
+            <div>
+                <h1 class="text-3xl font-extrabold text-gray-900 flex items-center">
+                    <i data-lucide="feather" class="lucide-icon text-indigo-500 w-8 h-8 mr-3"></i>
+                    我的文字樣本庫
+                </h1>
+                <p class="text-gray-500 mt-1">在這裡管理和修改您的文字作品集。</p>
+            </div>
+            <div id="user-info" class="text-right">
+                <!-- User ID will be inserted here by JS -->
+                <p class="text-sm text-gray-500">正在連接...</p>
+            </div>
+        </header>
+
+        <!-- 新增樣本表單 -->
+        <div id="new-sample-form-container">
+            <!-- Content rendered by JS -->
+        </div>
+
+        <!-- 篩選器 -->
+        <div class="mb-6 p-4 bg-white rounded-xl shadow-md">
+            <h2 class="text-xl font-semibold text-gray-700 mb-3 flex items-center">
+                <i data-lucide="filter" class="lucide-icon w-5 h-5 mr-2 text-indigo-500"></i>
+                分類篩選
+            </h2>
+            <div id="filter-container" class="flex flex-wrap gap-2">
+                <!-- Filter buttons rendered by JS -->
+                <button class="px-4 py-2 text-sm font-semibold rounded-full bg-indigo-600 text-white shadow-lg">全部 (0)</button>
+            </div>
+        </div>
+
+        <!-- 樣本列表 -->
+        <div id="samples-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <!-- Text sample cards rendered by JS -->
+            <div class="col-span-full text-center py-10 text-gray-400">
+                <i data-lucide="loader" class="lucide-icon w-8 h-8 mx-auto mb-2 animate-spin"></i>
+                <p>正在載入您的作品...</p>
+            </div>
+        </div>
+
+        <!-- Footer for padding -->
+        <div class="h-10"></div>
+    </div>
+
+</body>
+</html>
