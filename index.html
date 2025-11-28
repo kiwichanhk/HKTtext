@@ -36,9 +36,29 @@
         // IMPORTANT: Firestore uses logging to console.
         setLogLevel('Debug');
         
-        // --- 1. 全域變數和初始化 ---
+        // --- 1. 全域變數、設定檔與初始化 ---
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
+        
+        // --- IMPORTANT: 使用者自定義 Firebase 設定 (若在 GitHub 或本地環境運行) ---
+        // 已使用使用者提供的配置替換佔位符
+        const customFirebaseConfig = {
+            apiKey: "AIzaSyBnQmqGZQ_94BDgmZFzOJsKDjgYq8ipI2I",
+            authDomain: "hkttext.firebaseapp.com",
+            projectId: "hkttext",
+            storageBucket: "hkttext.firebasestorage.app",
+            messagingSenderId: "501339425536",
+            appId: "1:501339425536:web:f9ddbf080a002be99701e5",
+            measurementId: "G-CKY8VPMJXJ" // 雖然 Firestore 不需要，但保留完整性
+        };
+
+        // 優先使用 Canvas 環境變數 (__firebase_config)，否則使用 customFirebaseConfig。
+        const envFirebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
+        
+        // 檢查 customFirebaseConfig 是否已被替換（即 projectId 不再是佔位符）
+        const isCustomConfigReady = customFirebaseConfig.projectId !== "YOUR_PROJECT_ID" && customFirebaseConfig.projectId !== undefined;
+
+        const firebaseConfig = envFirebaseConfig || (isCustomConfigReady ? customFirebaseConfig : null);
+        
         const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
 
         let app, db, auth, userId = null;
@@ -46,7 +66,7 @@
         let currentCategoryFilter = '全部'; // 預設篩選器
         let activeEditId = null; // 當前正在編輯的樣本ID
 
-        // 檢查 Firebase 配置是否存在
+        // 檢查 Firebase 配置是否存在並初始化
         if (firebaseConfig) {
             app = initializeApp(firebaseConfig);
             db = getFirestore(app);
@@ -56,15 +76,21 @@
             document.getElementById('app-container').innerHTML = `
                 <div class="p-6 bg-red-100 border border-red-400 text-red-700 rounded-lg max-w-lg mx-auto mt-10">
                     <p class="font-bold">設定錯誤</p>
-                    <p>無法載入 Firebase 配置。請檢查環境變數。</p>
+                    <p>無法載入 Firebase 配置。請檢查環境變數，或將您的專案配置貼入 \`customFirebaseConfig\` 變數內。</p>
                 </div>
             `;
-            // 修正: 移除在模組頂層範圍的非法 'return;' 語句。
         }
 
         // --- 2. 認證與使用者設定 ---
         const signInAndListen = async () => {
+            // 檢查 auth 是否已初始化
+            if (!auth) {
+                console.error("Authentication service not initialized. Skipping sign-in.");
+                return;
+            }
+            
             try {
+                // 在 Canvas 環境中優先使用自定義令牌，否則使用匿名登入
                 if (initialAuthToken) {
                     await signInWithCustomToken(auth, initialAuthToken);
                 } else {
@@ -72,10 +98,7 @@
                 }
             } catch (error) {
                 console.error("Firebase Authentication failed:", error);
-                // 由於 auth 可能為 null，這裡需要確保它存在
-                if (auth) {
-                    await signInAnonymously(auth); // Fallback to anonymous
-                }
+                await signInAnonymously(auth); // Fallback to anonymous
             }
 
             // 監聽認證狀態變化
@@ -103,8 +126,8 @@
 
         // 取得資料庫參考路徑
         const getSamplesCollectionRef = () => {
-            if (!userId) {
-                console.error("User ID is not set. Cannot get collection reference.");
+            if (!userId || !db) {
+                console.error("User ID or Firestore service is not set. Cannot get collection reference.");
                 return null;
             }
             // 私人資料路徑: /artifacts/{appId}/users/{userId}/text_samples
