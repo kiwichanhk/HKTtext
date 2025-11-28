@@ -43,22 +43,8 @@
         // --- 1. 全域變數、設定檔與初始化 ---
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
         
-        // --- IMPORTANT: 使用者自定義 Firebase 設定 (若在 GitHub 或本地環境運行) ---
-        const customFirebaseConfig = {
-            apiKey: "AIzaSyBnQmqGZQ_94BDgmZFzOJsKDjgYq8ipI2I",
-            authDomain: "hkttext.firebaseapp.com",
-            projectId: "hkttext",
-            storageBucket: "hkttext.firebasestorage.app",
-            messagingSenderId: "501339425536",
-            appId: "1:501339425536:web:f9ddbf080a002be99701e5",
-            measurementId: "G-CKY8VPMJXJ" 
-        };
-
+        // 🚨 僅使用 Canvas 提供的配置，避免混淆
         const envFirebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
-        const isCustomConfigReady = customFirebaseConfig.projectId !== "YOUR_PROJECT_ID" && customFirebaseConfig.projectId !== undefined;
-
-        const firebaseConfig = envFirebaseConfig || (isCustomConfigReady ? customFirebaseConfig : null);
-        
         const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
 
         let app, db, auth, userId = null;
@@ -66,21 +52,33 @@
         let currentCategoryFilter = '全部';
         let activeEditId = null;
 
-        if (firebaseConfig) {
-            app = initializeApp(firebaseConfig);
-            db = getFirestore(app);
-            auth = getAuth(app);
+        // 初始化 Firebase 服務
+        if (envFirebaseConfig) {
+            try {
+                app = initializeApp(envFirebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+            } catch (error) {
+                console.error("Firebase 初始化失敗 (initializeApp failed):", error);
+                document.getElementById('app-container').innerHTML = `
+                    <div class="p-6 bg-red-100 border border-red-400 text-red-700 rounded-lg max-w-lg mx-auto mt-10">
+                        <p class="font-bold">設定錯誤</p>
+                        <p>Firebase 初始化失敗。請檢查您的環境配置。</p>
+                        <p class="text-xs mt-2">錯誤訊息: ${error.message}</p>
+                    </div>
+                `;
+            }
         } else {
-            console.error("Firebase configuration is missing. Data persistence will not work.");
+            console.error("Firebase configuration (__firebase_config) is missing. Data persistence will not work.");
             document.getElementById('app-container').innerHTML = `
                 <div class="p-6 bg-red-100 border border-red-400 text-red-700 rounded-lg max-w-lg mx-auto mt-10">
                     <p class="font-bold">設定錯誤</p>
-                    <p>無法載入 Firebase 配置。請檢查環境變數，或將您的專案配置貼入 \`customFirebaseConfig\` 變數內。</p>
+                    <p>無法載入 Firebase 配置。請檢查環境變數是否正確提供。</p>
                 </div>
             `;
         }
         
-        // --- 2. Gemini API 邏輯與工具函式 ---
+        // --- 2. Gemini API 邏輯與工具函式 (保持不變) ---
         const GEMINI_MODEL = "gemini-2.5-flash-preview-09-2025";
         const GEMINI_API_KEY = ""; // Canvas will provide this if empty
         const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
@@ -134,10 +132,11 @@
             return text;
         };
         
-        // --- 3. 認證與使用者設定 (與原程式碼相同，略過註釋) ---
+        // --- 3. 認證與使用者設定 (關鍵修改) ---
         const signInAndListen = async () => {
-            if (!auth) {
-                console.error("Authentication service not initialized. Skipping sign-in.");
+            // 🚨 新增檢查：如果 Firebase 服務初始化失敗，則退出
+            if (!auth || !db) {
+                console.error("Authentication or Firestore service is not initialized. Cannot sign in.");
                 return;
             }
             
@@ -148,10 +147,18 @@
                     await signInAnonymously(auth);
                 }
             } catch (error) {
-                console.error("Firebase Authentication failed:", error);
-                await signInAnonymously(auth);
+                console.error("Firebase Authentication failed during sign-in attempt:", error);
+                // 嘗試匿名登入作為備用
+                try {
+                    await signInAnonymously(auth);
+                } catch (anonError) {
+                    console.error("Fallback anonymous sign-in failed:", anonError);
+                    showModal('認證錯誤', `無法連接到 Firebase 認證服務：${error.message}`, 'alert-octagon');
+                    return; // 退出，防止卡住
+                }
             }
 
+            // 監聽認證狀態變更
             onAuthStateChanged(auth, (user) => {
                 if (user) {
                     userId = user.uid;
@@ -163,20 +170,28 @@
                         </span>
                     `;
                     lucide.createIcons();
+                    
+                    // 🚀 優化點：立即渲染 UI 骨架 (包含篩選器和新增分類按鈕)
+                    renderUI(); 
+
                     if (db) {
                         listenForSamples();
                     }
                 } else {
                     console.log("User signed out or failed to sign in.");
+                    // 登出時也渲染一次，顯示空白狀態
+                    userId = null;
+                    renderUI(); 
                 }
             });
         };
         
-        // --- 4. Firestore 資料操作 (與原程式碼相同，略過註釋) ---
+        // --- 4. Firestore 資料操作 (保持不變) ---
 
         const getSamplesCollectionRef = () => {
             if (!userId || !db) {
                 console.error("User ID or Firestore service is not set. Cannot get collection reference.");
+                // 🚨 如果缺少 userId，返回 null，listenForSamples 將會退出
                 return null;
             }
             return collection(db, `artifacts/${appId}/users/${userId}/text_samples`);
@@ -184,7 +199,7 @@
 
         const listenForSamples = () => {
             const colRef = getSamplesCollectionRef();
-            if (!colRef) return;
+            if (!colRef) return; // 如果沒有 ref，則退出
 
             const q = query(colRef);
             
@@ -195,16 +210,21 @@
                 }));
                 samples.sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0));
                 
-                renderUI();
+                renderUI(); // 數據載入完成後再次渲染，顯示樣本和正確的計數
             }, (error) => {
                 console.error("Error listening to Firestore:", error);
+                // 即使監聽失敗，也嘗試渲染 UI，避免卡在載入中
                 showModal('錯誤', '無法連接到資料庫，請檢查您的網路連線。');
+                renderUI(); 
             });
         };
 
         const saveSample = async (data) => {
             const colRef = getSamplesCollectionRef();
-            if (!colRef) return;
+            if (!colRef) {
+                showModal('錯誤', '資料庫服務尚未準備好。', 'alert-octagon');
+                return;
+            }
 
             try {
                 if (data.id) {
@@ -234,7 +254,10 @@
         const deleteSample = async (id) => {
             if (!id) return;
             const colRef = getSamplesCollectionRef();
-            if (!colRef) return;
+            if (!colRef) {
+                showModal('錯誤', '資料庫服務尚未準備好。', 'alert-octagon');
+                return;
+            }
 
             try {
                 const docRef = doc(colRef, id);
@@ -246,7 +269,7 @@
             }
         };
         
-        // --- 5. UI 輔助與模態框邏輯 ---
+        // --- 5. UI 輔助與模態框邏輯 (保持不變) ---
 
         // 隱藏模態框
         const hideModal = () => {
@@ -274,7 +297,7 @@
             }, 5000);
         };
         
-        // 處理刪除確認 (與原程式碼相同，略過註釋)
+        // 處理刪除確認 
         const handleDeleteClick = (id) => {
             const modal = document.getElementById('confirm-modal');
             
@@ -419,7 +442,7 @@
             `;
         };
         
-        // --- 6. 新增：處理中/翻譯模態框 ---
+        // --- 6. 處理中/翻譯模態框 (保持不變) ---
         const showProcessingModal = (title, message) => {
             const modal = document.getElementById('processing-modal');
             document.getElementById('processing-title').textContent = title;
@@ -436,7 +459,7 @@
             modal.classList.add('opacity-0', 'pointer-events-none');
         };
 
-        // **************** 已修改：替換為翻譯結果模態框 ****************
+        // AI 翻譯結果模態框
         const showTranslationModal = (id, translation, originalContent) => {
             const modal = document.getElementById('translation-modal');
             document.getElementById('translation-content-display').innerHTML = translation.replace(/\n/g, '<br>');
@@ -469,7 +492,7 @@
             modal.classList.add('opacity-0', 'pointer-events-none');
         };
 
-        // --- 7. 新增：Gemini 翻譯功能 (替換總結) ---
+        // --- 7. Gemini 翻譯功能 (保持不變) ---
         const translateSample = async (id, originalContent) => {
             if (!originalContent.trim().length) {
                  showModal('注意', '樣本內容為空，無法翻譯。', 'alert-triangle');
@@ -492,7 +515,7 @@
             }
         };
         
-        // --- 8. 新增：Gemini 草稿生成功能 ---
+        // --- 8. Gemini 草稿生成功能 (保持不變) ---
         const generateDraft = async () => {
             const draftPrompt = document.getElementById('draft-prompt').value.trim();
             const contentTextarea = document.getElementById('new-content');
@@ -524,7 +547,7 @@
         };
 
 
-        // --- 9. 主渲染函式：修復首段落空位並新增按鈕 ---
+        // --- 9. 主渲染函式：修復首段落空位並新增按鈕 (保持不變) ---
         const renderSampleCard = (sample) => {
             const date = sample.timestamp ? new Date(sample.timestamp.seconds * 1000).toLocaleString('zh-TW', {
                 year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit'
@@ -563,7 +586,7 @@
                         `}
                         <div class="flex-shrink-0 ml-4 flex space-x-2">
                             ${isEditing ? '' : `
-                                <!-- 已修改：AI 翻譯按鈕 (替換了總結) -->
+                                <!-- AI 翻譯按鈕 -->
                                 <button onclick="window.app.translateSample('${sample.id}', '${escapedContent}')" class="text-white bg-blue-500 hover:bg-blue-600 p-2 rounded-full shadow-md transition duration-150" title="使用 Gemini 翻譯為英文">
                                     <i data-lucide="languages" class="lucide-icon w-4 h-4"></i>
                                 </button>
@@ -637,6 +660,9 @@
             const samplesContainer = document.getElementById('samples-container');
             const filterContainer = document.getElementById('filter-container');
             
+            // 🚨 預防性檢查
+            if (!samplesContainer || !filterContainer) return;
+            
             const categories = getCategories();
             const filteredSamples = currentCategoryFilter === '全部'
                 ? samples
@@ -662,13 +688,34 @@
             `;
 
             if (filteredSamples.length === 0) {
-                samplesContainer.innerHTML = `
-                    <div class="col-span-full text-center py-10 bg-white rounded-xl shadow-inner text-gray-500">
-                        <i data-lucide="book-open" class="lucide-icon w-12 h-12 mx-auto mb-4 text-gray-300"></i>
-                        <p class="text-lg">目前在這個分類中沒有文字樣本。</p>
-                        <p class="text-sm">點擊右上角的「新增文字樣本」按鈕開始創建吧！</p>
-                    </div>
-                `;
+                // 只有在樣本為空時才顯示加載提示，否則應該顯示「正在載入您的作品...」
+                // 如果 samples 為空，但 userId 已經設置，則顯示創建提示
+                if (samples.length === 0 && userId) {
+                     samplesContainer.innerHTML = `
+                        <div class="col-span-full text-center py-10 bg-white rounded-xl shadow-inner text-gray-500">
+                            <i data-lucide="book-open" class="lucide-icon w-12 h-12 mx-auto mb-4 text-gray-300"></i>
+                            <p class="text-lg">目前在這個分類中沒有文字樣本。</p>
+                            <p class="text-sm">點擊右上角的「新增文字樣本」按鈕開始創建吧！</p>
+                        </div>
+                    `;
+                } else if (!userId) {
+                    // 🚨 如果用戶 ID 還沒拿到，保持原始的加載中狀態
+                    samplesContainer.innerHTML = `
+                        <div class="col-span-full text-center py-10 text-gray-400">
+                            <i data-lucide="loader" class="lucide-icon w-8 h-8 mx-auto mb-2 animate-spin"></i>
+                            <p>正在載入您的作品...</p>
+                        </div>
+                    `;
+                } else {
+                    // 已經載入過資料，但在當前分類下沒有樣本
+                     samplesContainer.innerHTML = `
+                        <div class="col-span-full text-center py-10 bg-white rounded-xl shadow-inner text-gray-500">
+                            <i data-lucide="folder-open" class="lucide-icon w-12 h-12 mx-auto mb-4 text-gray-300"></i>
+                            <p class="text-lg">此分類「${currentCategoryFilter}」中沒有任何樣本。</p>
+                            <p class="text-sm">請切換分類或新增樣本。</p>
+                        </div>
+                    `;
+                }
             } else {
                 samplesContainer.innerHTML = filteredSamples.map(renderSampleCard).join('');
             }
@@ -691,17 +738,18 @@
             hideModal, 
             saveSample,
             renderUI,
-            // 新增 Gemini 函式 (已更新為翻譯)
-            translateSample, // 替換 summarizeSample
+            translateSample, 
             generateDraft,
-            hideTranslationModal, // 替換 hideSummaryModal
+            hideTranslationModal, 
         };
         
         window.onload = () => {
+            // 檢查 Firebase 是否成功初始化，如果失敗，則不需要調用 signInAndListen
             if (auth && db) {
                 signInAndListen();
             } else {
-                console.warn("Firebase not initialized, skipping authentication.");
+                console.warn("Firebase 未成功初始化，跳過認證流程。");
+                // 這裡無需調用 renderUI，因為初始化失敗的錯誤訊息已經顯示在 app-container 中
             }
         };
 
@@ -720,7 +768,7 @@
         </div>
     </div>
     
-    <!-- **************** 已修改：AI 翻譯結果模態框 (Translation Modal) **************** -->
+    <!-- AI 翻譯結果模態框 (Translation Modal) -->
     <div id="translation-modal" class="custom-modal fixed inset-0 z-40 flex items-center justify-center bg-black bg-opacity-70 opacity-0 pointer-events-none" onclick="window.app.hideTranslationModal()">
         <div class="bg-white p-6 rounded-xl shadow-2xl max-w-3xl w-full transform transition-all duration-300 modal-content-transition scale-90" onclick="event.stopPropagation()">
             <div class="flex justify-between items-center mb-4 border-b pb-3">
@@ -747,7 +795,6 @@
             </div>
         </div>
     </div>
-    <!-- ********************************************************************************* -->
 
 
     <!-- 自定義訊息模態框 (Custom Modal) -->
@@ -797,7 +844,7 @@
             
             <div class="bg-white" id="add-new-sample-form">
                 
-                <!-- 新增：AI 草稿生成區塊 -->
+                <!-- AI 草稿生成區塊 -->
                 <div class="mb-6 p-4 border border-blue-200 bg-blue-50 rounded-lg shadow-inner">
                     <h3 class="text-lg font-bold text-blue-700 flex items-center mb-2">
                         <i data-lucide="sparkles" class="lucide-icon w-5 h-5 mr-2"></i>
