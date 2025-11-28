@@ -146,8 +146,7 @@
                     const docRef = doc(colRef, data.id);
                     await updateDoc(docRef, {
                         title: data.title,
-                        content_ch: data.content_ch,
-                        content_en: data.content_en,
+                        content: data.content,
                         category: data.category,
                         timestamp: serverTimestamp()
                     });
@@ -155,8 +154,7 @@
                 } else {
                     await addDoc(colRef, {
                         title: data.title || '無標題樣本',
-                        content_ch: data.content_ch || '',
-                        content_en: data.content_en || '',
+                        content: data.content || '',
                         category: data.category || '未分類',
                         timestamp: serverTimestamp()
                     });
@@ -309,15 +307,13 @@
 
             if (isCurrentlyEditing) {
                 const titleInput = sampleCard.querySelector('#edit-title');
-                const contentChInput = sampleCard.querySelector('#edit-content-ch');
-                const contentEnInput = sampleCard.querySelector('#edit-content-en');
+                const contentInput = sampleCard.querySelector('#edit-content');
                 const categorySelect = sampleCard.querySelector('#edit-category');
                 
                 const updatedSample = {
                     id: id,
                     title: titleInput.value,
-                    content_ch: contentChInput.value,
-                    content_en: contentEnInput.value,
+                    content: contentInput.value,
                     category: categorySelect.value
                 };
                 
@@ -387,7 +383,7 @@
             const escapedContent = JSON.stringify(sample.content).slice(1, -1).replace(/\\/g, '\\\\').replace(/'/g, '\\\'');
 
             // 修正：使用 .trim() 移除首尾空白和空行，解決首段落空位問題
-            const displayContent = (sample.content_ch || "").trim().replace(/\n/g, '<br>');
+            const displayContent = sample.content.trim().replace(/\n/g, '<br>');
 
             return `
                 <div id="sample-${sample.id}" class="bg-white p-6 rounded-xl shadow-lg hover:shadow-xl transition duration-300 flex flex-col h-full border-t-4 border-indigo-500">
@@ -398,14 +394,6 @@
                             <h3 class="text-xl font-bold text-gray-800">${sample.title}</h3>
                         `}
                         <div class="flex-shrink-0 ml-4 flex space-x-2">
-                                ${!isEditing ? `
-                                <button onclick="window.app.copyText('${sample.id}', 'ch')" class="text-white bg-blue-400 hover:bg-blue-500 p-2 rounded-full shadow-md transition duration-150" title="複製中文">
-                                    <i data-lucide="copy" class="lucide-icon w-4 h-4"></i>
-                                </button>
-                                <button onclick="window.app.copyText('${sample.id}', 'en')" class="text-white bg-green-400 hover:bg-green-500 p-2 rounded-full shadow-md transition duration-150" title="複製英文">
-                                    <i data-lucide="languages" class="lucide-icon w-4 h-4"></i>
-                                </button>
-                                ` : ''}
                             
                             <button onclick="window.app.toggleEditMode('${sample.id}')" class="text-white ${isEditing ? 'bg-green-500 hover:bg-green-600' : 'bg-indigo-500 hover:bg-indigo-600'} p-2 rounded-full shadow-md transition duration-150">
                                 <i data-lucide="${isEditing ? 'save' : 'edit'}" class="lucide-icon w-4 h-4"></i>
@@ -426,16 +414,9 @@
                     </div>
                     
                     ${isEditing ? `
-                        
-                            <div class="flex flex-col space-y-2 h-96">
-                                <label class="text-xs font-bold text-gray-500">中文內容</label>
-                                <textarea id="edit-content-ch" class="flex-grow w-full border border-gray-300 p-2 rounded-lg resize-none focus:ring-indigo-500">${sample.content_ch || ''}</textarea>
-                                <label class="text-xs font-bold text-gray-500">英文內容</label>
-                                <textarea id="edit-content-en" class="flex-grow w-full border border-gray-300 p-2 rounded-lg resize-none focus:ring-indigo-500">${sample.content_en || ''}</textarea>
-                            </div>
-    
+                        <textarea id="edit-content" class="flex-grow w-full h-48 border border-gray-300 p-3 rounded-lg resize-y focus:ring-indigo-500 focus:border-indigo-500 text-gray-700">${sample.content}</textarea>
                     ` : `
-                        <div class="flex-grow text-gray-700 sample-content overflow-auto mb-4 border p-3 rounded-lg bg-gray-50 max-h-64">
+                        <div class="flex-grow text-gray-700 sample-content overflow-auto mb-4 border p-3 rounded-lg bg-gray-50 max-h-32">
                             ${displayContent}
                         </div>
                     `}
@@ -449,8 +430,7 @@
         
         const createNewSample = () => {
             const titleInput = document.getElementById('new-title');
-            const contentChInput = document.getElementById('new-content-ch');
-            const contentEnInput = document.getElementById('new-content-en');
+            const contentInput = document.getElementById('new-content');
             const categorySelect = document.getElementById('new-category');
             
             let category = categorySelect.value;
@@ -462,20 +442,18 @@
             
             const newSample = {
                 title: titleInput.value || '無標題樣本',
-                content_ch: contentChInput.value || '',
-                content_en: contentEnInput.value || '',
+                content: contentInput.value || '',
                 category: category
             };
 
-            if (!newSample.content_ch.trim() && !newSample.content_en.trim()) {
+            if (!newSample.content.trim()) {
                 showModal('注意', '內容不能為空！', 'alert-triangle');
                 return;
             }
 
             saveSample(newSample).then(() => {
                 titleInput.value = '';
-                contentChInput.value = '';
-                contentEnInput.value = '';
+                contentInput.value = '';
                 categorySelect.value = '未分類';
                 // document.getElementById('draft-prompt').value = ''; // Removed draft prompt
                 hideAddSampleModal();
@@ -551,17 +529,6 @@
 
         // --- 10. 啟動應用程式 ---
         window.app = {
-            
-                copyText: (id, lang) => {
-                    const sample = samples.find(s => s.id === id);
-                    if(!sample) return;
-                    const text = lang === 'ch' ? sample.content_ch : sample.content_en;
-                    if(!text) return alert('該語言內容為空');
-                    navigator.clipboard.writeText(text).then(() => {
-                        showModal('複製成功', (lang==='ch'?'中文':'英文') + '內容已複製到剪貼簿', 'check');
-                    });
-                },
-    
             setCategoryFilter,
             toggleEditMode,
             createNewSample,
@@ -642,8 +609,8 @@
                 </button>
             </div>
             
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div class="col-span-2 space-y-4">
+            <div class="grid grid-cols-1 gap-6">
+                <div class="col-span-1 space-y-4">
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1">標題</label>
                         <input type="text" id="new-title" class="w-full border border-gray-300 p-3 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 transition shadow-sm" placeholder="為這個作品取個名字...">
@@ -657,34 +624,12 @@
                     </div>
                     
                     <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">中文內容 (Chinese Content)</label>
-                        textarea id="new-content-ch" class="w-full h-32 border border-gray-300 p-3 rounded-lg resize-none focus:ring-indigo-500 focus:border-indigo-500 transition shadow-sm" placeholder="在這裡輸入或貼上您的文字內容..."></textarea>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">內容</label>
+                        <textarea id="new-content" class="w-full h-32 border border-gray-300 p-3 rounded-lg resize-none focus:ring-indigo-500 focus:border-indigo-500 transition shadow-sm" placeholder="在這裡輸入或貼上您的文字內容..."></textarea>
                     </div>
-                        <div class="mt-4">
-                            <label class="block text-sm font-medium text-gray-700 mb-1">英文內容 (English Content)</label>
-                            <textarea id="new-content-en" class="w-full h-32 border border-gray-300 p-3 rounded-lg resize-none focus:ring-indigo-500 focus:border-indigo-500 transition shadow-sm" placeholder="Enter or paste your English text here..."></textarea>
-                        </div>
                 </div>
                 
-                <div class="col-span-1 bg-gray-50 p-4 rounded-lg border border-gray-200">
-                    <div class="mb-4">
-                        <h3 class="font-bold text-gray-700 mb-2 flex items-center">
-                            <i data-lucide="lightbulb" class="lucide-icon w-4 h-4 mr-1 text-yellow-500"></i>
-                            寫作靈感
-                        </h3>
-                        <p class="text-sm text-gray-600">不確定該寫什麼？試試以下分類：</p>
-                        <ul class="list-disc list-inside text-sm text-gray-500 mt-2 space-y-1 ml-1">
-                            <li>文案撰寫</li>
-                            <li>創意寫作</li>
-                            <li>會議記錄</li>
-                            <li>日記隨筆</li>
-                            <li>詩歌創作</li>
-                        </ul>
-                    </div>
-                    
-                    
-                    
-                </div>
+                
             </div>
 
             <div class="flex justify-end mt-6 pt-4 border-t border-gray-100 space-x-3">
