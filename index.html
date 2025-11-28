@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>文字樣本與作品集</title>
+    <title>文字樣本與作品集 </title>
     <!-- 載入 Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- 載入 Lucide Icons (用於美觀圖標) -->
@@ -30,78 +30,52 @@
             transition: transform 0.3s ease-out;
         }
     </style>
-    <!-- Firebase SDK Imports -->
+    <!-- Firebase & Gemini API Imports and Logic -->
     <script type="module">
+        
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
         import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
         import { getFirestore, doc, getDoc, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, collection, query, where, getDocs, serverTimestamp, orderBy } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
         import { getAnalytics } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-analytics.js";
 
         
+        
         // --- 1. 設定檔與初始化 ---
-        const firebaseConfig = {
-          apiKey: "AIzaSyBnQmqGZQ_94BDgmZFzOJsKDjgYq8ipI2I",
-          authDomain: "hkttext.firebaseapp.com",
-          projectId: "hkttext",
-          storageBucket: "hkttext.firebasestorage.app",
-          messagingSenderId: "501339425536",
-          appId: "1:501339425536:web:f9ddbf080a002be99701e5",
-          measurementId: "G-CKY8VPMJXJ"
-        };
+        const firebaseConfig = {{ apiKey: "AIzaSyBnQmqGZQ_94BDgmZFzOJsKDjgYq8ipI2I", authDomain: "hkttext.firebaseapp.com", projectId: "hkttext", storageBucket: "hkttext.firebasestorage.app", messagingSenderId: "501339425536", appId: "1:501339425536:web:f9ddbf080a002be99701e5", measurementId: "G-CKY8VPMJXJ" }};
+        let app, db, auth, analytics, userId = null, samples = [], currentCategoryFilter = '全部', activeEditId = null;
+        const appId = 'default-app-id';
+        try {{ app = initializeApp(firebaseConfig); analytics = getAnalytics(app); auth = getAuth(app); db = getFirestore(app); }} catch (e) {{ console.error("Firebase Init Error", e); }}
 
-        let app, db, auth, analytics, userId = null;
-        let samples = [];
-        let currentCategoryFilter = '全部';
-        let activeEditId = null;
-        const appId = 'default-app-id'; // 需要保留此變數供下方使用
 
-        // 初始化 Firebase
-        try {
-            app = initializeApp(firebaseConfig);
-            analytics = getAnalytics(app);
-            auth = getAuth(app);
-            db = getFirestore(app);
-            console.log("Firebase initialized successfully");
-        } catch (error) {
-            console.error("Firebase init error:", error);
-            alert("Firebase 初始化失敗: " + error.message);
+        // 初始化 Firebase 服務
+        if (envFirebaseConfig) { // 現在 envFirebaseConfig 是經過安全解析的物件，或為 null
+            try {
+                app = initializeApp(envFirebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+            } catch (error) {
+                // 確保在初始化失敗時，錯誤訊息能顯示
+                console.error("Firebase 初始化失敗 (initializeApp failed):", error);
+                document.getElementById('app-container').innerHTML = `
+                    <div class="p-6 bg-red-100 border border-red-400 text-red-700 rounded-lg max-w-lg mx-auto mt-10">
+                        <p class="font-bold">設定錯誤</p>
+                        <p>Firebase 初始化失敗。這可能是因為 API 金鑰或 Project ID 無效。</p>
+                        <p class="text-xs mt-2">錯誤訊息: ${error.message}</p>
+                    </div>
+                `;
+            }
+        } else {
+            console.error("Firebase configuration (__firebase_config) is missing, empty, or failed to parse. Data persistence will not work.");
+            document.getElementById('app-container').innerHTML = `
+                <div class="p-6 bg-red-100 border border-red-400 text-red-700 rounded-lg max-w-lg mx-auto mt-10">
+                    <p class="font-bold">設定錯誤</p>
+                    <p>無法載入 Firebase 配置。環境變數遺失或解析失敗。</p>
+                </div>
+            `;
         }
-
         
         // --- 3. 認證與使用者設定 (關鍵修改) ---
-        
-        const signInAndListen = async () => {
-            if (!auth) return;
-            
-            onAuthStateChanged(auth, (user) => {
-                if (user) {
-                    userId = user.uid;
-                    document.getElementById('auth-status').innerHTML = `
-                        <span class="hidden" id="actual-user-id">${userId}</span>
-                        <span class="text-sm text-gray-500 flex items-center" title="已連接 Firebase 資料庫">
-                            <i data-lucide="database" class="lucide-icon w-4 h-4 mr-1 text-indigo-500"></i>
-                            已連接資料庫
-                        </span>
-                    `;
-                    lucide.createIcons();
-                    
-                    // 🚀 優化點：立即渲染 UI 骨架 (包含篩選器和新增分類按鈕)
-                    renderUI(); 
-
-                    if (db) {
-                        listenForSamples();
-                    }
-                } else {
-                    signInAnonymously(auth).catch((error) => {
-                        console.error("Sign in failed:", error);
-                        showModal('認證錯誤', '無法登入: ' + error.message);
-                    });
-                }
-            });
-        };
-
-        
-        // --- 4. Firestore 資料操作 (保持不變) ---
+        const signInAndListen = async () => {{ if (!auth) return; onAuthStateChanged(auth, (user) => {{ if (user) {{ userId = user.uid; renderUI(); listenForSamples(); }} else {{ signInAnonymously(auth); }} }}); }};// --- 4. Firestore 資料操作 (保持不變) ---
 
         const getSamplesCollectionRef = () => {
             if (!userId || !db) {
@@ -146,7 +120,8 @@
                     const docRef = doc(colRef, data.id);
                     await updateDoc(docRef, {
                         title: data.title,
-                        content: data.content,
+                        content_ch: data.content_ch,
+                        content_en: data.content_en,
                         category: data.category,
                         timestamp: serverTimestamp()
                     });
@@ -154,7 +129,8 @@
                 } else {
                     await addDoc(colRef, {
                         title: data.title || '無標題樣本',
-                        content: data.content || '',
+                        content_ch: data.content_ch || '',
+                        content_en: data.content_en || '',
                         category: data.category || '未分類',
                         timestamp: serverTimestamp()
                     });
@@ -243,6 +219,7 @@
             document.getElementById('new-title').value = '';
             document.getElementById('new-content').value = '';
             document.getElementById('new-category').value = '未分類';
+            document.getElementById('draft-prompt').value = ''; // Clear prompt
             lucide.createIcons();
         };
 
@@ -307,13 +284,15 @@
 
             if (isCurrentlyEditing) {
                 const titleInput = sampleCard.querySelector('#edit-title');
-                const contentInput = sampleCard.querySelector('#edit-content');
+                const contentChInput = sampleCard.querySelector('#edit-content-ch');
+                const contentEnInput = sampleCard.querySelector('#edit-content-en');
                 const categorySelect = sampleCard.querySelector('#edit-category');
                 
                 const updatedSample = {
                     id: id,
                     title: titleInput.value,
-                    content: contentInput.value,
+                    content_ch: contentChInput.value,
+                    content_en: contentEnInput.value,
                     category: categorySelect.value
                 };
                 
@@ -356,6 +335,111 @@
             `;
         };
         
+        // --- 6. 處理中/翻譯模態框 (保持不變) ---
+        const showProcessingModal = (title, message) => {
+            const modal = document.getElementById('processing-modal');
+            document.getElementById('processing-title').textContent = title;
+            document.getElementById('processing-message').textContent = message;
+            
+            modal.classList.remove('opacity-0', 'pointer-events-none');
+            modal.classList.add('opacity-100');
+            lucide.createIcons();
+        };
+
+        const hideProcessingModal = () => {
+            const modal = document.getElementById('processing-modal');
+            modal.classList.remove('opacity-100');
+            modal.classList.add('opacity-0', 'pointer-events-none');
+        };
+
+        // AI 翻譯結果模態框
+        const showTranslationModal = (id, translation, originalContent) => {
+            const modal = document.getElementById('translation-modal');
+            document.getElementById('translation-content-display').innerHTML = translation.replace(/\n/g, '<br>');
+            
+            const replaceBtn = document.getElementById('translation-replace-btn');
+            replaceBtn.onclick = () => {
+                // 找到原始樣本物件
+                const sampleToUpdate = samples.find(s => s.id === id);
+                if (sampleToUpdate) {
+                    // 執行更新
+                    const updatedSample = {
+                        id: id,
+                        title: sampleToUpdate.title,
+                        content: translation.trim(), // 用翻譯內容替換內容
+                        category: sampleToUpdate.category
+                    };
+                    saveSample(updatedSample);
+                }
+                hideTranslationModal();
+            };
+
+            modal.classList.remove('opacity-0', 'pointer-events-none');
+            modal.classList.add('opacity-100');
+            lucide.createIcons();
+        };
+
+        const hideTranslationModal = () => {
+            const modal = document.getElementById('translation-modal');
+            modal.classList.remove('opacity-100');
+            modal.classList.add('opacity-0', 'pointer-events-none');
+        };
+
+        // --- 7. Gemini 翻譯功能 (保持不變) ---
+        const translateSample = async (id, originalContent) => {
+            if (!originalContent.trim().length) {
+                 showModal('注意', '樣本內容為空，無法翻譯。', 'alert-triangle');
+                 return;
+            }
+
+            showProcessingModal('正在翻譯', 'Gemini 正在將您的文本翻譯成英文...');
+            
+            try {
+                const systemPrompt = "你是一位專業的翻譯家。請將使用者提供的文本精準、流暢地翻譯成專業的**英文**。僅返回翻譯後的文本內容，不要包含任何額外的說明或註釋。";
+                const translation = await callGemini(originalContent, systemPrompt);
+                
+                hideProcessingModal();
+                showTranslationModal(id, translation, originalContent);
+                
+            } catch (error) {
+                hideProcessingModal();
+                console.error("Translation failed:", error);
+                showModal('翻譯錯誤', `無法生成翻譯：${error.message}`, 'alert-octagon');
+            }
+        };
+        
+        // --- 8. Gemini 草稿生成功能 (保持不變) ---
+        const generateDraft = async () => {
+            const draftPrompt = document.getElementById('draft-prompt').value.trim();
+            const contentTextarea = document.getElementById('new-content');
+
+            if (!draftPrompt) {
+                showModal('提示', '請輸入您的草稿需求描述！', 'alert-triangle');
+                return;
+            }
+            
+            showProcessingModal('正在生成草稿', 'Gemini 正在根據您的需求寫作...');
+            
+            try {
+                const systemPrompt = "你是一位頂尖的文案設計師。請根據使用者的要求，以繁體中文寫作一篇專業的文本草稿。僅返回文本內容，不要包含任何開頭或結尾的註釋。";
+                const generatedContent = await callGemini(draftPrompt, systemPrompt);
+                
+                // 成功後將生成的內容填入 textarea
+                contentTextarea.value = generatedContent.trim();
+                // 使用提示作為標題前綴
+                document.getElementById('new-title').value = `AI 草稿: ${draftPrompt.substring(0, 30)}${draftPrompt.length > 30 ? '...' : ''}`;
+                
+                hideProcessingModal();
+                showModal('生成成功', '草稿已成功填入內容欄位，請檢查和修改。', 'check-circle');
+                
+            } catch (error) {
+                hideProcessingModal();
+                console.error("Draft generation failed:", error);
+                showModal('生成錯誤', `無法生成草稿：${error.message}`, 'alert-octagon');
+            }
+        };
+
+
         // --- 9. 主渲染函式：修復首段落空位並新增按鈕 (保持不變) ---
         const renderSampleCard = (sample) => {
             const date = sample.timestamp ? new Date(sample.timestamp.seconds * 1000).toLocaleString('zh-TW', {
@@ -383,7 +467,7 @@
             const escapedContent = JSON.stringify(sample.content).slice(1, -1).replace(/\\/g, '\\\\').replace(/'/g, '\\\'');
 
             // 修正：使用 .trim() 移除首尾空白和空行，解決首段落空位問題
-            const displayContent = sample.content.trim().replace(/\n/g, '<br>');
+            const displayContent = (sample.content_ch || "").trim().replace(/\n/g, '<br>');
 
             return `
                 <div id="sample-${sample.id}" class="bg-white p-6 rounded-xl shadow-lg hover:shadow-xl transition duration-300 flex flex-col h-full border-t-4 border-indigo-500">
@@ -394,7 +478,10 @@
                             <h3 class="text-xl font-bold text-gray-800">${sample.title}</h3>
                         `}
                         <div class="flex-shrink-0 ml-4 flex space-x-2">
-                            
+                            ${isEditing ? '' : `
+                                <!-- AI 翻譯按鈕 -->
+                                
+                            `}
                             <button onclick="window.app.toggleEditMode('${sample.id}')" class="text-white ${isEditing ? 'bg-green-500 hover:bg-green-600' : 'bg-indigo-500 hover:bg-indigo-600'} p-2 rounded-full shadow-md transition duration-150">
                                 <i data-lucide="${isEditing ? 'save' : 'edit'}" class="lucide-icon w-4 h-4"></i>
                             </button>
@@ -430,7 +517,8 @@
         
         const createNewSample = () => {
             const titleInput = document.getElementById('new-title');
-            const contentInput = document.getElementById('new-content');
+            const contentChInput = document.getElementById('new-content-ch');
+            const contentEnInput = document.getElementById('new-content-en');
             const categorySelect = document.getElementById('new-category');
             
             let category = categorySelect.value;
@@ -442,20 +530,22 @@
             
             const newSample = {
                 title: titleInput.value || '無標題樣本',
-                content: contentInput.value || '',
+                content_ch: contentChInput.value || '',
+                content_en: contentEnInput.value || '',
                 category: category
             };
 
-            if (!newSample.content.trim()) {
+            if (!newSample.content_ch.trim() && !newSample.content_en.trim()) {
                 showModal('注意', '內容不能為空！', 'alert-triangle');
                 return;
             }
 
             saveSample(newSample).then(() => {
                 titleInput.value = '';
-                contentInput.value = '';
+                contentChInput.value = '';
+                contentEnInput.value = '';
                 categorySelect.value = '未分類';
-                // document.getElementById('draft-prompt').value = ''; // Removed draft prompt
+                document.getElementById('draft-prompt').value = ''; // Clear prompt
                 hideAddSampleModal();
             });
         };
@@ -529,6 +619,23 @@
 
         // --- 10. 啟動應用程式 ---
         window.app = {
+            copyText: function(sampleId, lang) {
+                const sample = samples.find(s => s.id === sampleId);
+                if (!sample) return;
+                const textToCopy = lang === 'ch' ? sample.content_ch : sample.content_en;
+                if (!textToCopy) {
+                    showModal('注意', '該語言內容為空，無法複製。', 'alert-triangle');
+                    return;
+                }
+                navigator.clipboard.writeText(textToCopy).then(() => {
+                    const langText = lang === 'ch' ? '中文' : '英文';
+                    showModal('成功', `${langText}內容已複製到剪貼簿！`, 'check-circle');
+                }).catch(err => {
+                    console.error('Copy failed', err);
+                    showModal('錯誤', '複製失敗', 'alert-octagon');
+                });
+            },
+
             setCategoryFilter,
             toggleEditMode,
             createNewSample,
@@ -548,11 +655,12 @@
         };
         
         window.onload = () => {
-            // 檢查 Firebase 是否成功初始化
+            // 檢查 Firebase 是否成功初始化，如果失敗，則不需要調用 signInAndListen
             if (auth && db) {
                 signInAndListen();
             } else {
                 console.warn("Firebase 未成功初始化，跳過認證流程。");
+                // 這裡無需調用 renderUI，因為初始化失敗的錯誤訊息已經顯示在 app-container 中
             }
         };
 
@@ -561,9 +669,12 @@
 <body class="bg-gray-50 min-h-screen">
 
     
+    </div>
     
     
-    
+    </div>
+
+
     <!-- 自定義訊息模態框 (Custom Modal) -->
     <div id="custom-modal" class="custom-modal fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 opacity-0 pointer-events-none">
         <div class="bg-white p-6 rounded-xl shadow-2xl max-w-sm w-full transform transition-all duration-300 scale-95" onclick="event.stopPropagation()">
@@ -601,7 +712,7 @@
         <div class="bg-white p-6 rounded-xl shadow-2xl max-w-4xl w-full transform transition-all duration-300 modal-content-transition scale-90" onclick="event.stopPropagation()">
             <div class="flex justify-between items-center mb-4 border-b pb-3">
                 <h2 class="text-2xl font-extrabold text-indigo-800 flex items-center">
-                    <i data-lucide="pen-tool" class="lucide-icon w-6 h-6 mr-2"></i>
+                    <i data-lucide="plus-square" class="lucide-icon w-6 h-6 mr-2"></i>
                     新增文字樣本
                 </h2>
                 <button onclick="window.app.hideAddSampleModal()" class="text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-100">
@@ -609,132 +720,119 @@
                 </button>
             </div>
             
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div class="col-span-2 space-y-4">
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">標題</label>
-                        <input type="text" id="new-title" class="w-full border border-gray-300 p-3 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 transition shadow-sm" placeholder="為這個作品取個名字...">
+            <div class="bg-white" id="add-new-sample-form">
+                
+                <!-- AI 草稿生成區塊 -->
+                <div class="mb-6 p-4 border border-blue-200 bg-blue-50 rounded-lg shadow-inner">
+                    <h3 class="text-lg font-bold text-blue-700 flex items-center mb-2">
+                        <i data-lucide="sparkles" class="lucide-icon w-5 h-5 mr-2"></i>
+                        AI 智能草稿生成
+                    </h3>
+                    <p class="text-sm text-gray-600 mb-2">請輸入您想要 AI 撰寫的內容描述：</p>
+                    <div class="flex space-x-3">
+                        <input type="text" id="draft-prompt" class="flex-grow rounded-md border-gray-300 shadow-sm p-3 focus:border-blue-500 focus:ring-blue-500" placeholder="例如：一篇介紹 App 新功能的銷售文案">
+                        <button onclick="window.app.generateDraft()" class="flex-shrink-0 inline-flex items-center px-4 py-3 border border-transparent text-sm font-medium rounded-full shadow-md text-white bg-blue-600 hover:bg-blue-700 transition duration-150">
+                            <i data-lucide="pen-tool" class="lucide-icon w-5 h-5 mr-1"></i>
+                            生成草稿
+                        </button>
                     </div>
-                    
+                </div>
+
+                <!-- 傳統手動輸入區塊 -->
+                <p class="text-sm text-gray-700 mb-4">或手動填寫以下欄位：</p>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                    <div class="md:col-span-2">
+                        <label for="new-title" class="block text-sm font-medium text-gray-700">標題</label>
+                        <input type="text" id="new-title" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-3 focus:border-indigo-500 focus:ring-indigo-500" placeholder="輸入樣本標題">
+                    </div>
                     <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">分類</label>
-                        <select id="new-category" class="w-full border border-gray-300 p-3 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 transition shadow-sm bg-white">
+                        <label for="new-category" class="block text-sm font-medium text-gray-700">分類</label>
+                        <select id="new-category" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-3 focus:border-indigo-500 focus:ring-indigo-500">
                             <option value="未分類">未分類</option>
+                            <option value="新增分類">--- 請使用篩選器區域按鈕 ---</option>
                         </select>
                     </div>
-                    
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">內容</label>
-                        <textarea id="new-content" class="w-full h-64 border border-gray-300 p-3 rounded-lg resize-none focus:ring-indigo-500 focus:border-indigo-500 transition shadow-sm" placeholder="在這裡輸入或貼上您的文字內容..."></textarea>
-                    </div>
                 </div>
+                <label for="new-content" class="block text-sm font-medium text-gray-700 mb-1">內容</label>
+                <textarea id="new-content" rows="10" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-3 focus:border-indigo-500 focus:ring-indigo-500" placeholder="在此輸入您的文字內容..."></textarea>
                 
-                <div class="col-span-1 bg-gray-50 p-4 rounded-lg border border-gray-200">
-                    <div class="mb-4">
-                        <h3 class="font-bold text-gray-700 mb-2 flex items-center">
-                            <i data-lucide="lightbulb" class="lucide-icon w-4 h-4 mr-1 text-yellow-500"></i>
-                            寫作靈感
-                        </h3>
-                        <p class="text-sm text-gray-600">不確定該寫什麼？試試以下分類：</p>
-                        <ul class="list-disc list-inside text-sm text-gray-500 mt-2 space-y-1 ml-1">
-                            <li>文案撰寫</li>
-                            <li>創意寫作</li>
-                            <li>會議記錄</li>
-                            <li>日記隨筆</li>
-                            <li>詩歌創作</li>
-                        </ul>
-                    </div>
-                    
-                    
-                    
-                </div>
-            </div>
-
-            <div class="flex justify-end mt-6 pt-4 border-t border-gray-100 space-x-3">
-                <button onclick="window.app.hideAddSampleModal()" class="px-5 py-2 bg-white border border-gray-300 text-gray-700 rounded-full hover:bg-gray-50 transition duration-150 font-medium">取消</button>
-                <button onclick="window.app.createNewSample()" class="px-6 py-2 bg-indigo-600 text-white rounded-full hover:bg-indigo-700 transition duration-150 shadow-md flex items-center font-medium">
-                    <i data-lucide="save" class="lucide-icon w-4 h-4 mr-2"></i>
+                <button onclick="window.app.createNewSample()" class="mt-4 w-full md:w-auto inline-flex items-center justify-center px-6 py-3 border border-transparent text-base font-medium rounded-full shadow-lg text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition duration-150">
+                    <i data-lucide="send" class="lucide-icon w-5 h-5 mr-2"></i>
                     儲存樣本
                 </button>
             </div>
         </div>
     </div>
     
-    <!-- 新增分類模態框 -->
-    <div id="add-category-modal" class="custom-modal fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 opacity-0 pointer-events-none">
-        <div class="bg-white p-6 rounded-xl shadow-2xl max-w-sm w-full transform transition-all duration-300 scale-95" onclick="event.stopPropagation()">
-             <div class="flex justify-between items-center mb-4">
-                <h3 class="text-lg font-bold text-gray-800">新增分類</h3>
-                <button onclick="window.app.hideAddCategoryModal()" class="text-gray-400 hover:text-gray-600">
-                    <i data-lucide="x" class="lucide-icon w-5 h-5"></i>
+    <!-- 新增分類模態框 (Add Category Modal) -->
+    <div id="add-category-modal" class="custom-modal fixed inset-0 z-40 flex items-center justify-center bg-black bg-opacity-70 opacity-0 pointer-events-none" onclick="window.app.hideAddCategoryModal()">
+        <div class="bg-white p-6 rounded-xl shadow-2xl max-w-md w-full transform transition-all duration-300 modal-content-transition scale-90" onclick="event.stopPropagation()">
+            <div class="flex justify-between items-center mb-4 border-b pb-3">
+                <h2 class="text-xl font-extrabold text-indigo-800 flex items-center">
+                    <i data-lucide="folder-plus" class="lucide-icon w-5 h-5 mr-2"></i>
+                    新增篩選分類
+                </h2>
+                <button onclick="window.app.hideAddCategoryModal()" class="text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-100">
+                    <i data-lucide="x" class="lucide-icon w-6 h-6"></i>
                 </button>
             </div>
-            <p class="text-sm text-gray-600 mb-4">請輸入新分類的名稱：</p>
-            <input type="text" id="new-category-name" class="w-full border border-gray-300 p-2 rounded-lg mb-4 focus:ring-indigo-500 focus:border-indigo-500" placeholder="例如：會議記錄">
-            <div class="flex justify-end space-x-2">
-                <button onclick="window.app.hideAddCategoryModal()" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition duration-150">取消</button>
-                <button onclick="window.app.addNewCategoryAndFilter()" class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition duration-150">新增並切換</button>
-            </div>
+            <label for="new-category-name" class="block text-sm font-medium text-gray-700 mb-1">分類名稱</label>
+            <input type="text" id="new-category-name" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-3 focus:border-indigo-500 focus:ring-indigo-500" placeholder="例如：部落格文章, 產品描述">
+            
+            <button onclick="window.app.addNewCategoryAndFilter()" class="mt-4 w-full inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-full shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition duration-150">
+                <i data-lucide="check" class="lucide-icon w-4 h-4 mr-2"></i>
+                新增並篩選
+            </button>
         </div>
     </div>
 
-    <div id="app-container" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <!-- Header Section -->
-        <div class="bg-white rounded-2xl shadow-xl p-6 mb-8 border-l-8 border-indigo-600 flex flex-col md:flex-row justify-between items-center relative overflow-hidden">
-             <!-- 背景裝飾 -->
-            <div class="absolute top-0 right-0 -mt-10 -mr-10 w-40 h-40 bg-indigo-50 rounded-full opacity-50 pointer-events-none"></div>
-            
-            <div class="z-10">
-                <h1 class="text-3xl md:text-4xl font-extrabold text-gray-900 tracking-tight mb-2 flex items-center">
-                    我的文字樣本庫
-                    
+
+    <!-- 主要內容區塊 -->
+    <div id="app-container" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+
+        <!-- Header and Action Bar -->
+        <header class="mb-8 p-4 bg-white rounded-xl shadow-md flex justify-between items-start flex-wrap gap-4">
+            <div>
+                <h1 class="text-3xl font-extrabold text-gray-900 flex items-center">
+                    <i data-lucide="feather" class="lucide-icon text-indigo-500 w-8 h-8 mr-3"></i>
+                    我的文字樣本庫 (AI 增強)
                 </h1>
-                <p class="text-indigo-600 font-medium text-lg">在這裡管理和修改您的文字作品集。</p>
-                
-                <div id="auth-status" class="mt-3 flex items-center space-x-2">
-                    <i data-lucide="loader" class="lucide-icon w-4 h-4 animate-spin text-indigo-500"></i>
-                    <span class="text-sm text-gray-500">正在連接資料庫...</span>
+                <p class="text-gray-500 mt-1">在這裡管理和修改您的文字作品集。</p>
+                <div id="auth-status" class="mt-2">
+                    <span class="text-sm text-gray-500">正在連接...</span>
                 </div>
             </div>
             
-            <div class="mt-4 md:mt-0 z-10">
-                <button onclick="window.app.showAddSampleModal()" class="group bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-full shadow-lg hover:shadow-xl transition-all duration-200 flex items-center transform hover:-translate-y-1">
-                    <div class="bg-white bg-opacity-20 rounded-full p-1 mr-3 group-hover:rotate-90 transition duration-300">
-                        <i data-lucide="plus" class="lucide-icon w-5 h-5"></i>
-                    </div>
-                    <span class="font-bold">新增文字樣本</span>
+            <!-- 新增樣本按鈕 (移到右上角) -->
+            <div id="header-actions" class="text-right flex-shrink-0">
+                <button onclick="window.app.showAddSampleModal()" class="inline-flex items-center justify-center px-6 py-3 border border-transparent text-base font-medium rounded-full shadow-lg text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition duration-150">
+                    <i data-lucide="plus" class="lucide-icon w-5 h-5 mr-2"></i>
+                    新增文字樣本
                 </button>
             </div>
-        </div>
-
-        <!-- Filter & Search Section -->
-        <div class="bg-white rounded-xl shadow-md p-4 mb-8 sticky top-4 z-30 bg-opacity-95 backdrop-blur-sm border border-gray-100">
-            <div class="flex flex-col md:flex-row justify-between items-center space-y-4 md:space-y-0">
-                <div class="flex items-center w-full md:w-auto overflow-x-auto pb-2 md:pb-0 no-scrollbar mask-linear-fade">
-                    <span class="text-sm font-bold text-gray-500 mr-3 uppercase tracking-wider flex-shrink-0">分類篩選</span>
-                    <div id="filter-container" class="flex space-x-2">
-                        <!-- Filters injected by JS -->
-                        <span class="text-gray-400 text-sm italic">載入分類中...</span>
-                    </div>
-                </div>
-                
-                <div class="relative w-full md:w-64 group">
-                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                        <i data-lucide="search" class="lucide-icon text-gray-400 group-focus-within:text-indigo-500 transition"></i>
-                    </div>
-                    <input type="text" class="block w-full pl-10 pr-3 py-2 border border-gray-200 rounded-full leading-5 bg-gray-50 placeholder-gray-400 focus:outline-none focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition duration-150 sm:text-sm" placeholder="搜尋樣本標題...">
-                </div>
+        </header>
+        
+        <!-- 篩選器 -->
+        <div class="mb-6 p-4 bg-white rounded-xl shadow-md">
+            <h2 class="text-xl font-semibold text-gray-700 mb-3 flex items-center">
+                <i data-lucide="filter" class="lucide-icon w-5 h-5 mr-2 text-indigo-500"></i>
+                分類篩選
+            </h2>
+            <div id="filter-container" class="flex flex-wrap gap-2">
+                <button class="px-4 py-2 text-sm font-semibold rounded-full bg-indigo-600 text-white shadow-lg">全部 (0)</button>
             </div>
         </div>
 
-        <!-- Content Grid -->
-        <div id="samples-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pb-10">
-            <!-- Sample Cards injected by JS -->
-            <div class="col-span-full flex flex-col items-center justify-center py-20 text-gray-400 opacity-70">
-                <i data-lucide="loader" class="lucide-icon w-10 h-10 mb-3 animate-spin text-indigo-300"></i>
+        <!-- 樣本列表 -->
+        <div id="samples-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div class="col-span-full text-center py-10 text-gray-400">
+                <i data-lucide="loader" class="lucide-icon w-8 h-8 mx-auto mb-2 animate-spin"></i>
                 <p>正在載入您的作品...</p>
             </div>
         </div>
+
+        <!-- Footer for padding -->
+        <div class="h-10"></div>
     </div>
 
 </body>
