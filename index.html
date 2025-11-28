@@ -40,12 +40,26 @@
         // IMPORTANT: Firestore uses logging to console.
         setLogLevel('Debug');
         
-        // --- 1. 全域變數、設定檔與初始化 ---
+        // --- 1. 全域變數、設定檔與初始化 (已強化配置解析) ---
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
         
-        // 🚨 僅使用 Canvas 提供的配置，避免混淆
-        const envFirebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
+        let envFirebaseConfig = null;
         const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        // 🚨 強化配置解析邏輯：檢查是否存在且不為空字串，並使用 try-catch 處理解析錯誤
+        if (typeof __firebase_config !== 'undefined' && __firebase_config && typeof __firebase_config === 'string') {
+            try {
+                envFirebaseConfig = JSON.parse(__firebase_config);
+                // 額外檢查解析結果是否為一個有效的配置物件 (例如必須有 projectId 屬性)
+                if (typeof envFirebaseConfig !== 'object' || envFirebaseConfig === null || !envFirebaseConfig.projectId) {
+                    envFirebaseConfig = null; // 設為 null 以觸發錯誤訊息
+                    console.error("Parsed Firebase config is not a valid object or missing project ID.");
+                }
+            } catch (e) {
+                console.error("Failed to parse __firebase_config as JSON:", e);
+                // 如果解析失敗，envFirebaseConfig 保持 null
+            }
+        }
 
         let app, db, auth, userId = null;
         let samples = [];
@@ -53,27 +67,28 @@
         let activeEditId = null;
 
         // 初始化 Firebase 服務
-        if (envFirebaseConfig) {
+        if (envFirebaseConfig) { // 現在 envFirebaseConfig 是經過安全解析的物件，或為 null
             try {
                 app = initializeApp(envFirebaseConfig);
                 db = getFirestore(app);
                 auth = getAuth(app);
             } catch (error) {
+                // 確保在初始化失敗時，錯誤訊息能顯示
                 console.error("Firebase 初始化失敗 (initializeApp failed):", error);
                 document.getElementById('app-container').innerHTML = `
                     <div class="p-6 bg-red-100 border border-red-400 text-red-700 rounded-lg max-w-lg mx-auto mt-10">
                         <p class="font-bold">設定錯誤</p>
-                        <p>Firebase 初始化失敗。請檢查您的環境配置。</p>
+                        <p>Firebase 初始化失敗。這可能是因為 API 金鑰或 Project ID 無效。</p>
                         <p class="text-xs mt-2">錯誤訊息: ${error.message}</p>
                     </div>
                 `;
             }
         } else {
-            console.error("Firebase configuration (__firebase_config) is missing. Data persistence will not work.");
+            console.error("Firebase configuration (__firebase_config) is missing, empty, or failed to parse. Data persistence will not work.");
             document.getElementById('app-container').innerHTML = `
                 <div class="p-6 bg-red-100 border border-red-400 text-red-700 rounded-lg max-w-lg mx-auto mt-10">
                     <p class="font-bold">設定錯誤</p>
-                    <p>無法載入 Firebase 配置。請檢查環境變數是否正確提供。</p>
+                    <p>無法載入 Firebase 配置。環境變數遺失或解析失敗。</p>
                 </div>
             `;
         }
