@@ -40,7 +40,6 @@
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
         
         // --- IMPORTANT: 使用者自定義 Firebase 設定 (若在 GitHub 或本地環境運行) ---
-        // 已使用使用者提供的配置替換佔位符
         const customFirebaseConfig = {
             apiKey: "AIzaSyBnQmqGZQ_94BDgmZFzOJsKDjgYq8ipI2I",
             authDomain: "hkttext.firebaseapp.com",
@@ -48,7 +47,7 @@
             storageBucket: "hkttext.firebasestorage.app",
             messagingSenderId: "501339425536",
             appId: "1:501339425536:web:f9ddbf080a002be99701e5",
-            measurementId: "G-CKY8VPMJXJ" // 雖然 Firestore 不需要，但保留完整性
+            measurementId: "G-CKY8VPMJXJ" 
         };
 
         // 優先使用 Canvas 環境變數 (__firebase_config)，否則使用 customFirebaseConfig。
@@ -380,11 +379,12 @@
             ).join('');
 
             return `
-                <div class="bg-indigo-50 p-6 rounded-xl shadow-lg border-2 border-dashed border-indigo-300 mb-8">
-                    <h2 class="text-2xl font-extrabold text-indigo-700 mb-4 flex items-center">
+                <div class="bg-indigo-100 p-6 rounded-xl shadow-xl border-2 border-indigo-500 mb-8" id="add-new-sample-form">
+                    <h2 class="text-2xl font-extrabold text-indigo-800 mb-4 flex items-center">
                         <i data-lucide="plus-square" class="lucide-icon w-6 h-6 mr-2"></i>
                         新增文字樣本
                     </h2>
+                    <p class="text-sm text-indigo-700 mb-4">請填寫以下欄位來新增您的作品集內容。</p>
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
                         <div class="md:col-span-2">
                             <label for="new-title" class="block text-sm font-medium text-gray-700">標題</label>
@@ -402,7 +402,7 @@
                     <label for="new-content" class="block text-sm font-medium text-gray-700 mb-1">內容</label>
                     <textarea id="new-content" rows="6" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-3 focus:border-indigo-500 focus:ring-indigo-500" placeholder="在此輸入您的文字內容..."></textarea>
                     
-                    <button onclick="window.app.createNewSample()" class="mt-4 w-full md:w-auto inline-flex items-center justify-center px-6 py-3 border border-transparent text-base font-medium rounded-full shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition duration-150">
+                    <button onclick="window.app.createNewSample()" class="mt-4 w-full md:w-auto inline-flex items-center justify-center px-6 py-3 border border-transparent text-base font-medium rounded-full shadow-lg text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition duration-150">
                         <i data-lucide="send" class="lucide-icon w-5 h-5 mr-2"></i>
                         儲存樣本
                     </button>
@@ -567,7 +567,13 @@
             </div>
         </header>
 
-        <!-- 新增樣本表單 -->
+        <!-- ❗ 提示用戶新增區塊的位置 ❗ -->
+        <div class="mb-6 p-4 bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 rounded-lg">
+            <p class="font-bold">✨ 新增功能提示：</p>
+            <p class="text-sm">您要找的「新增文字樣本」表單就在正下方。請填寫標題和內容後，點擊「儲存樣本」按鈕即可。</p>
+        </div>
+
+        <!-- 新增樣本表單 (位於頁面最上方，方便使用) -->
         <div id="new-sample-form-container">
             <!-- Content rendered by JS -->
         </div>
