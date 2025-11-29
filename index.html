@@ -51,8 +51,10 @@
 
         let app, db, auth, analytics, userId = null;
         let samples = [];
-        let currentCategoryFilter = '全部';
+        let profiles = JSON.parse(localStorage.getItem('hkt_profiles')) || ['主要用戶'];
+        let currentProfileName = localStorage.getItem('hkt_current_profile') || profiles[0];
         let searchTerm = '';
+        let currentCategoryFilter = '全部';
         let activeEditId = null;
         const appId = 'default-app-id'; // 需要保留此變數供下方使用
 
@@ -71,7 +73,47 @@
         
         // --- 3. 認證與使用者設定 (關鍵修改) ---
         
-        const signInAndListen = async () => {
+        
+        const renderUserTabs = () => {
+            const container = document.getElementById('user-tabs-container');
+            if (!container) return;
+
+            let html = profiles.map(p => `
+                <button 
+                    onclick="window.app.switchUser('${p}')"
+                    class="px-4 py-2 rounded-lg text-sm font-bold transition-all duration-200 flex items-center shadow-sm ${p === currentProfileName 
+                        ? 'bg-indigo-600 text-white ring-2 ring-indigo-600 ring-offset-1' 
+                        : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'}"
+                >
+                    <i data-lucide="user" class="w-4 h-4 mr-2"></i>
+                    ${p}
+                </button>
+            `).join('');
+
+            // Single, clean Add Button
+            html += `
+                <button onclick="window.app.addUser()" class="ml-2 px-4 py-2 rounded-lg border-2 border-dashed border-gray-300 text-gray-500 hover:border-indigo-400 hover:text-indigo-600 hover:bg-indigo-50 transition-all flex items-center font-bold bg-transparent">
+                    <i data-lucide="plus" class="w-4 h-4 mr-1"></i>
+                    新增
+                </button>
+            `;
+
+            container.innerHTML = html;
+            setTimeout(() => { if(window.lucide) window.lucide.createIcons(); }, 50);
+        };
+
+        const setupEventListeners = () => {
+            const searchInput = document.getElementById('search-input');
+            if (searchInput) {
+                searchInput.addEventListener('input', (e) => {
+                    searchTerm = e.target.value;
+                    renderUI();
+                    setupEventListeners();
+                    renderUserTabs();
+                });
+            }
+        };
+const signInAndListen = async () => {
             if (!auth) return;
             
             onAuthStateChanged(auth, (user) => {
@@ -87,8 +129,7 @@
                     lucide.createIcons();
                     
                     // 🚀 優化點：立即渲染 UI 骨架 (包含篩選器和新增分類按鈕)
-                    renderUI();
-                    setupEventListeners();
+                    renderUI(); 
 
                     if (db) {
                         listenForSamples();
@@ -111,7 +152,10 @@
                 // 🚨 如果缺少 userId，返回 null，listenForSamples 將會退出
                 return null;
             }
-            return collection(db, `artifacts/${appId}/users/${userId}/text_samples`);
+            
+            if (!currentProfileName) return null;
+            return collection(db, `artifacts/${appId}/profiles/${currentProfileName}/text_samples`);
+
         };
 
         const listenForSamples = () => {
@@ -560,18 +604,27 @@
             lucide.createIcons();
         };
 
-        
-        const setupEventListeners = () => {
-            const searchInput = document.getElementById('search-input');
-            if (searchInput) {
-                searchInput.addEventListener('input', (e) => {
-                    searchTerm = e.target.value;
-                    renderUI();
-                });
-            }
-        };
-// --- 10. 啟動應用程式 ---
+        // --- 10. 啟動應用程式 ---
         window.app = {
+            switchUser: (name) => {
+                if (name === currentProfileName) return;
+                currentProfileName = name;
+                localStorage.setItem('hkt_current_profile', name);
+                renderUserTabs();
+                listenForSamples();
+            },
+            addUser: () => {
+                const name = prompt("請輸入新用戶名稱：");
+                if (name && name.trim()) {
+                    const clean = name.trim();
+                    if (!profiles.includes(clean)) {
+                        profiles.push(clean);
+                        localStorage.setItem('hkt_profiles', JSON.stringify(profiles));
+                        window.app.switchUser(clean);
+                    } else { alert("用戶已存在"); window.app.switchUser(clean); }
+                }
+            },
+
             
             copyText: (id, lang) => {
                 const sample = samples.find(s => s.id === id);
@@ -724,18 +777,29 @@
              <!-- 背景裝飾 -->
             <div class="absolute top-0 right-0 -mt-10 -mr-10 w-40 h-40 bg-indigo-50 rounded-full opacity-50 pointer-events-none"></div>
             
-            <div class="z-10">
-                <h1 class="text-3xl md:text-4xl font-extrabold text-gray-900 tracking-tight mb-2 flex items-center">
-                    我的文字樣本庫
-                    
-                </h1>
-                <p class="text-indigo-600 font-medium text-lg">在這裡管理和修改您的文字作品集。</p>
-                
-                <div id="auth-status" class="mt-3 flex items-center space-x-2">
-                    <i data-lucide="loader" class="lucide-icon w-4 h-4 animate-spin text-indigo-500"></i>
-                    <span class="text-sm text-gray-500">正在連接資料庫...</span>
+            
+            <div class="z-10 mb-8 flex flex-col lg:flex-row lg:items-end justify-between gap-4">
+                <!-- Left Side: Title & Desc -->
+                <div>
+                    <h1 class="text-3xl md:text-4xl font-extrabold text-gray-900 tracking-tight mb-2 flex items-center">
+                        我的文字樣本庫
+                    </h1>
+                    <p class="text-indigo-600 font-medium text-lg">在這裡管理和修改您的文字作品集。</p>
+                </div>
+
+                <!-- Right Side: User Tabs -->
+                <div class="flex-1 lg:text-right">
+                    <div id="user-tabs-container" class="inline-flex flex-wrap items-center justify-end gap-2">
+                         <!-- JS will inject buttons here -->
+                         <span class="text-sm text-gray-400 flex items-center bg-white px-3 py-1.5 rounded-lg border border-gray-200">
+                             <i data-lucide="loader-2" class="animate-spin mr-2 w-4 h-4"></i> 載入用戶...
+                         </span>
+                    </div>
+                    <!-- Hidden auth status to keep existing logic happy -->
+                    <div id="auth-status" class="hidden"></div>
                 </div>
             </div>
+        
             
             <div class="mt-4 md:mt-0 z-10">
                 <button onclick="window.app.showAddSampleModal()" class="group bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-full shadow-lg hover:shadow-xl transition-all duration-200 flex items-center transform hover:-translate-y-1">
