@@ -51,9 +51,8 @@
 
         let app, db, auth, analytics, userId = null;
         let samples = [];
-        // Profile System (Minimal)
         let profiles = JSON.parse(localStorage.getItem('hkt_profiles')) || ['所有文本'];
-        let currentProfileName = localStorage.getItem('hkt_current_profile') || profiles[0];
+        let currentProfileName = localStorage.getItem('hkt_current_profile') || '所有文本';
         let currentCategoryFilter = '全部';
         let searchTerm = '';
         let activeEditId = null;
@@ -75,7 +74,6 @@
         // --- 3. 認證與使用者設定 (關鍵修改) ---
         
         
-        // === User Tabs Rendering ===
         const renderUserTabs = () => {
             const container = document.getElementById('user-tabs-container');
             if (!container) return;
@@ -103,7 +101,6 @@
             container.innerHTML = html;
         };
 
-        // === Search Listener ===
         const setupSearchListener = () => {
             const input = document.getElementById('search-input');
             if (input) {
@@ -155,11 +152,14 @@ const signInAndListen = async () => {
                 // 🚨 如果缺少 userId，返回 null，listenForSamples 將會退出
                 return null;
             }
-            // Use profile-based path if profile is set and not "所有文本"
-            if (currentProfileName && currentProfileName !== '所有文本') {
+            // Profile routing logic
+            if (currentProfileName === '所有文本') {
+                // "所有文本" shows original data from users/${userId} path
+                return collection(db, `artifacts/${appId}/users/${userId}/text_samples`);
+            } else {
+                // Other profiles use new profiles/* path
                 return collection(db, `artifacts/${appId}/profiles/${currentProfileName}/text_samples`);
             }
-            return collection(db, `artifacts/${appId}/users/${userId}/text_samples`);
         };
 
         const listenForSamples = () => {
@@ -540,12 +540,9 @@ const signInAndListen = async () => {
             if (!samplesContainer || !filterContainer) return;
             
             const categories = getCategories();
-            // Category filter
             let categoryFiltered = currentCategoryFilter === '全部' 
                 ? samples 
                 : samples.filter(s => s.category === currentCategoryFilter);
-
-            // Search filter
             const lowerTerm = searchTerm ? searchTerm.toLowerCase().trim() : '';
             const filteredSamples = lowerTerm 
                 ? categoryFiltered.filter(s => 
@@ -612,21 +609,12 @@ const signInAndListen = async () => {
 
         // --- 10. 啟動應用程式 ---
         window.app = {
-            // Profile Management
             switchProfile: (name) => {
                 if (name === currentProfileName) return;
                 currentProfileName = name;
                 localStorage.setItem('hkt_current_profile', name);
                 renderUserTabs();
-
-                // Reload samples
-                if (currentProfileName === '所有文本') {
-                    // For now, just clear samples. Full aggregation can be added later.
-                    samples = [];
-                    renderUI();
-                } else {
-                    listenForSamples();
-                }
+                listenForSamples(); // Reload data from the correct path
             },
 
             addProfile: () => {
@@ -809,9 +797,7 @@ const signInAndListen = async () => {
                 
                 
                 <div class="mb-3">
-                    <div id="user-tabs-container" class="flex flex-wrap gap-2">
-                        <!-- Tabs will be injected by JS -->
-                    </div>
+                    <div id="user-tabs-container" class="flex flex-wrap gap-2"></div>
                 </div>
                 <div id="auth-status" class="mt-3 flex items-center space-x-2">
                     <i data-lucide="loader" class="lucide-icon w-4 h-4 animate-spin text-indigo-500"></i>
