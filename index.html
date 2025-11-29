@@ -87,7 +87,8 @@
                     lucide.createIcons();
                     
                     // 🚀 優化點：立即渲染 UI 骨架 (包含篩選器和新增分類按鈕)
-                    renderUI(); 
+                    renderUI();
+                    setupEventListeners();
 
                     if (db) {
                         listenForSamples();
@@ -126,8 +127,7 @@
                 }));
                 samples.sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0));
                 
-                renderUI(); // 數據載入完成後再次渲染
-                    setupEventListeners();，顯示樣本和正確的計數
+                renderUI(); // 數據載入完成後再次渲染，顯示樣本和正確的計數
             }, (error) => {
                 console.error("Error listening to Firestore:", error);
                 // 即使監聽失敗，也嘗試渲染 UI，避免卡在載入中
@@ -496,7 +496,7 @@
                 ? samples 
                 : samples.filter(s => s.category === currentCategoryFilter);
 
-            const lowerTerm = searchTerm.toLowerCase().trim();
+            const lowerTerm = searchTerm ? searchTerm.toLowerCase().trim() : '';
             const filteredSamples = lowerTerm 
                 ? categoryFiltered.filter(s => 
                     s.title.toLowerCase().includes(lowerTerm) || 
@@ -688,8 +688,7 @@
                     </div>
                 </div>
                 
-                
-            </div>
+                </div>
 
             <div class="flex justify-end mt-6 pt-4 border-t border-gray-100 space-x-3">
                 <button onclick="window.app.hideAddSampleModal()" class="px-5 py-2 bg-white border border-gray-300 text-gray-700 rounded-full hover:bg-gray-50 transition duration-150 font-medium">取消</button>
