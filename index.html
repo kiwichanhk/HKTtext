@@ -127,7 +127,7 @@
                 samples.sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0));
                 
                 renderUI(); // 數據載入完成後再次渲染
-                    setupEventListeners(); // 設置搜尋等事件監聽器，顯示樣本和正確的計數
+                    setupEventListeners();，顯示樣本和正確的計數
             }, (error) => {
                 console.error("Error listening to Firestore:", error);
                 // 即使監聽失敗，也嘗試渲染 UI，避免卡在載入中
@@ -566,11 +566,10 @@
             if (searchInput) {
                 searchInput.addEventListener('input', (e) => {
                     searchTerm = e.target.value;
-                    renderUI(); // Re-render the UI on every keystroke in search
+                    renderUI();
                 });
             }
         };
-
 // --- 10. 啟動應用程式 ---
         window.app = {
             
@@ -581,6 +580,7 @@
                 if(!text) return alert('該語言內容為空');
                 navigator.clipboard.writeText(text).then(() => {
                     showModal('複製成功', (lang==='ch'?'中文':'英文') + '內容已複製到剪貼簿', 'check');
+                    setTimeout(() => window.app.hideModal(), 1500);
                 });
             },
 
