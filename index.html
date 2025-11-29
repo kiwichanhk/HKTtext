@@ -126,7 +126,8 @@
                 }));
                 samples.sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0));
                 
-                renderUI(); // 數據載入完成後再次渲染，顯示樣本和正確的計數
+                renderUI(); // 數據載入完成後再次渲染
+                    setupEventListeners(); // 設置搜尋等事件監聽器，顯示樣本和正確的計數
             }, (error) => {
                 console.error("Error listening to Firestore:", error);
                 // 即使監聽失敗，也嘗試渲染 UI，避免卡在載入中
@@ -491,19 +492,18 @@
             if (!samplesContainer || !filterContainer) return;
             
             const categories = getCategories();
-            let filtered = currentCategoryFilter === '全部'
-                ? samples
+            let categoryFiltered = currentCategoryFilter === '全部' 
+                ? samples 
                 : samples.filter(s => s.category === currentCategoryFilter);
 
-            if (searchTerm) {
-                const lowerTerm = searchTerm.toLowerCase();
-                filtered = filtered.filter(s => 
+            const lowerTerm = searchTerm.toLowerCase().trim();
+            const filteredSamples = lowerTerm 
+                ? categoryFiltered.filter(s => 
                     s.title.toLowerCase().includes(lowerTerm) || 
-                    s.content_ch.toLowerCase().includes(lowerTerm) || 
+                    (s.content_ch && s.content_ch.toLowerCase().includes(lowerTerm)) || 
                     (s.content_en && s.content_en.toLowerCase().includes(lowerTerm))
-                );
-            }
-            const filteredSamples = filtered;
+                  )
+                : categoryFiltered;
 
             filterContainer.innerHTML = categories.map(cat => `
                 <button 
@@ -561,18 +561,15 @@
         };
 
         
-        // --- Search Listener Setup ---
-        const setupSearchListener = () => {
+        const setupEventListeners = () => {
             const searchInput = document.getElementById('search-input');
             if (searchInput) {
                 searchInput.addEventListener('input', (e) => {
-                    searchTerm = e.target.value.trim();
-                    renderUI();
+                    searchTerm = e.target.value;
+                    renderUI(); // Re-render the UI on every keystroke in search
                 });
             }
         };
-        // Initialize search listener
-        setupSearchListener();
 
 // --- 10. 啟動應用程式 ---
         window.app = {
@@ -766,7 +763,7 @@
                     <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                         <i data-lucide="search" class="lucide-icon text-gray-400 group-focus-within:text-indigo-500 transition"></i>
                     </div>
-                    <input type="text" class="block w-full pl-10 pr-3 py-2 border border-gray-200 rounded-full leading-5 bg-gray-50 placeholder-gray-400 focus:outline-none focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition duration-150 sm:text-sm" placeholder="搜尋樣本標題...">
+                    <input type="text" class="block w-full pl-10 pr-3 py-2 border border-gray-200 rounded-full leading-5 bg-gray-50 placeholder-gray-400 focus:outline-none focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition duration-150 sm:text-sm" id="search-input" placeholder="搜尋樣本標題...">
                 </div>
             </div>
         </div>
