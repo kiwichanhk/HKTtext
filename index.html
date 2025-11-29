@@ -73,7 +73,65 @@
         
         // --- 3. 認證與使用者設定 (關鍵修改) ---
         
-        const signInAndListen = async () => {
+        
+        const renderUserTabs = () => {
+            const container = document.getElementById('user-tabs-container');
+            if (!container) return;
+
+            let html = profiles.map(p => {
+                const isActive = p === currentProfileName;
+                const isDeletable = p !== '所有文本';
+
+                return `
+                <div style="display: inline-flex; align-items: center; gap: 0.25rem; padding: 0.375rem 0.75rem; border-radius: 0.5rem; background: ${isActive ? '#4f46e5' : '#ffffff'}; color: ${isActive ? '#ffffff' : '#374151'}; border: 1px solid ${isActive ? '#4f46e5' : '#d1d5db'}; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
+                    <button 
+                        onclick="window.app.switchProfile('${p}')"
+                        style="background: none; border: none; cursor: pointer; font-weight: 600; font-size: 0.875rem; color: inherit; padding: 0;"
+                    >
+                        ${p}
+                    </button>
+                    ${isDeletable ? `
+                        <button 
+                            onclick="event.stopPropagation(); window.app.deleteProfile('${p}')" 
+                            style="background: none; border: none; cursor: pointer; padding: 0.25rem; margin-left: 0.25rem; color: ${isActive ? '#ffffff' : '#9ca3af'};"
+                            title="刪除用戶"
+                        >
+                            ✕
+                        </button>
+                    ` : ''}
+                </div>
+                `;
+            }).join('');
+
+            html += `
+                <button 
+                    onclick="window.app.addProfile()" 
+                    style="padding: 0.375rem 0.75rem; border-radius: 0.5rem; border: 2px dashed #d1d5db; background: transparent; color: #6b7280; cursor: pointer; font-weight: 600; font-size: 0.875rem;"
+                >
+                    + 新增
+                </button>
+            `;
+
+            container.innerHTML = html;
+        };
+
+        const setupSearchListener = () => {
+            const input = document.getElementById('search-input');
+            if (input) {
+                input.addEventListener('input', (e) => {
+                    searchTerm = e.target.value;
+                    renderUI();
+                });
+            }
+        };
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', renderUserTabs);
+        } else {
+            renderUserTabs();
+        }
+
+const signInAndListen = async () => {
             if (!auth) return;
             
             onAuthStateChanged(auth, (user) => {
@@ -89,7 +147,9 @@
                     lucide.createIcons();
                     
                     // 🚀 優化點：立即渲染 UI 骨架 (包含篩選器和新增分類按鈕)
-                    renderUI(); 
+                    renderUI();
+                    setupSearchListener();
+                    renderUserTabs(); 
 
                     if (db) {
                         listenForSamples();
@@ -497,17 +557,9 @@
             if (!samplesContainer || !filterContainer) return;
             
             const categories = getCategories();
-            let categoryFiltered = currentCategoryFilter === '全部' 
-                ? samples 
-                : samples.filter(s => s.category === currentCategoryFilter);
+            let categoryFiltered = currentCategoryFilter === '全部' ? samples : samples.filter(s => s.category === currentCategoryFilter);
             const lowerTerm = searchTerm ? searchTerm.toLowerCase().trim() : '';
-            const filteredSamples = lowerTerm 
-                ? categoryFiltered.filter(s => 
-                    (s.title && s.title.toLowerCase().includes(lowerTerm)) || 
-                    (s.content_ch && s.content_ch.toLowerCase().includes(lowerTerm)) || 
-                    (s.content_en && s.content_en.toLowerCase().includes(lowerTerm))
-                  )
-                : categoryFiltered;
+            const filteredSamples = lowerTerm ? categoryFiltered.filter(s => (s.title && s.title.toLowerCase().includes(lowerTerm)) || (s.content_ch && s.content_ch.toLowerCase().includes(lowerTerm)) || (s.content_en && s.content_en.toLowerCase().includes(lowerTerm))) : categoryFiltered;
 
             filterContainer.innerHTML = categories.map(cat => `
                 <button 
@@ -566,6 +618,50 @@
 
         // --- 10. 啟動應用程式 ---
         window.app = {
+            switchProfile: (name) => {
+                if (name === currentProfileName) return;
+                currentProfileName = name;
+                localStorage.setItem('hkt_current_profile', name);
+                renderUserTabs();
+                listenForSamples();
+            },
+
+            addProfile: () => {
+                const name = prompt("請輸入新用戶名稱：");
+                if (name && name.trim()) {
+                    const clean = name.trim();
+                    if (clean === '所有文本') {
+                        alert("此名稱為系統保留");
+                        return;
+                    }
+                    if (!profiles.includes(clean)) {
+                        profiles.push(clean);
+                        localStorage.setItem('hkt_profiles', JSON.stringify(profiles));
+                        window.app.switchProfile(clean);
+                    } else {
+                        alert("用戶已存在");
+                    }
+                }
+            },
+
+            deleteProfile: (name) => {
+                if (name === '所有文本') {
+                    alert("無法刪除系統保留的用戶");
+                    return;
+                }
+                if (!confirm(`確定要刪除用戶「${name}」嗎？\n\n注意：此操作不會刪除該用戶的文本數據，只是從列表中移除。`)) {
+                    return;
+                }
+                profiles = profiles.filter(p => p !== name);
+                localStorage.setItem('hkt_profiles', JSON.stringify(profiles));
+                if (name === currentProfileName) {
+                    window.app.switchProfile('所有文本');
+                } else {
+                    renderUserTabs();
+                }
+            },
+
+
             
             copyText: (id, lang) => {
                 const sample = samples.find(s => s.id === id);
@@ -724,11 +820,16 @@
                     
                 </h1>
                 <p class="text-indigo-600 font-medium text-lg">在這裡管理和修改您的文字作品集。</p>
-                
-                
-                <div class="mb-3">
-                    <div id="user-tabs-container" class="flex flex-wrap gap-2"></div>
+
+                <!-- USER TABS SECTION - HIGHLY VISIBLE -->
+                <div style="margin-top: 1rem; margin-bottom: 1rem; padding: 1rem; background: #f0f9ff; border: 2px solid #3b82f6; border-radius: 0.5rem;">
+                    <div id="user-tabs-container" style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
+                        <!-- JS will inject tabs here -->
+                        <span style="color: #6b7280; font-size: 0.875rem;">載入用戶中...</span>
+                    </div>
                 </div>
+                
+                
                 <div id="auth-status" class="mt-3 flex items-center space-x-2">
                     <i data-lucide="loader" class="lucide-icon w-4 h-4 animate-spin text-indigo-500"></i>
                     <span class="text-sm text-gray-500">正在連接資料庫...</span>
