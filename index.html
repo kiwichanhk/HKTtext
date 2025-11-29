@@ -51,7 +51,10 @@
 
         let app, db, auth, analytics, userId = null;
         let samples = [];
+        let profiles = JSON.parse(localStorage.getItem('hkt_profiles')) || ['所有文本'];
+        let currentProfileName = localStorage.getItem('hkt_current_profile') || '所有文本';
         let currentCategoryFilter = '全部';
+        let searchTerm = '';
         let activeEditId = null;
         const appId = 'default-app-id'; // 需要保留此變數供下方使用
 
@@ -70,7 +73,65 @@
         
         // --- 3. 認證與使用者設定 (關鍵修改) ---
         
-        const signInAndListen = async () => {
+        
+        const renderUserTabs = () => {
+            const container = document.getElementById('user-tabs-container');
+            if (!container) return;
+
+            let html = profiles.map(p => {
+                const isActive = p === currentProfileName;
+                const isDeletable = p !== '所有文本';
+
+                return `
+                <div style="display: inline-flex; align-items: center; gap: 0.25rem; padding: 0.375rem 0.75rem; border-radius: 0.5rem; background: ${isActive ? '#4f46e5' : '#ffffff'}; color: ${isActive ? '#ffffff' : '#374151'}; border: 1px solid ${isActive ? '#4f46e5' : '#d1d5db'}; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
+                    <button 
+                        onclick="window.app.switchProfile('${p}')"
+                        style="background: none; border: none; cursor: pointer; font-weight: 600; font-size: 0.875rem; color: inherit; padding: 0;"
+                    >
+                        ${p}
+                    </button>
+                    ${isDeletable ? `
+                        <button 
+                            onclick="event.stopPropagation(); window.app.deleteProfile('${p}')" 
+                            style="background: none; border: none; cursor: pointer; padding: 0.25rem; margin-left: 0.25rem; color: ${isActive ? '#ffffff' : '#9ca3af'};"
+                            title="刪除用戶"
+                        >
+                            ✕
+                        </button>
+                    ` : ''}
+                </div>
+                `;
+            }).join('');
+
+            html += `
+                <button 
+                    onclick="window.app.addProfile()" 
+                    style="padding: 0.375rem 0.75rem; border-radius: 0.5rem; border: 2px dashed #d1d5db; background: transparent; color: #6b7280; cursor: pointer; font-weight: 600; font-size: 0.875rem;"
+                >
+                    + 新增
+                </button>
+            `;
+
+            container.innerHTML = html;
+        };
+
+        const setupSearchListener = () => {
+            const input = document.getElementById('search-input');
+            if (input) {
+                input.addEventListener('input', (e) => {
+                    searchTerm = e.target.value;
+                    renderUI();
+                });
+            }
+        };
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', renderUserTabs);
+        } else {
+            renderUserTabs();
+        }
+
+const signInAndListen = async () => {
             if (!auth) return;
             
             onAuthStateChanged(auth, (user) => {
@@ -86,7 +147,9 @@
                     lucide.createIcons();
                     
                     // 🚀 優化點：立即渲染 UI 骨架 (包含篩選器和新增分類按鈕)
-                    renderUI(); 
+                    renderUI();
+                    setupSearchListener();
+                    renderUserTabs(); 
 
                     if (db) {
                         listenForSamples();
@@ -109,7 +172,11 @@
                 // 🚨 如果缺少 userId，返回 null，listenForSamples 將會退出
                 return null;
             }
-            return collection(db, `artifacts/${appId}/users/${userId}/text_samples`);
+            if (currentProfileName === '所有文本') {
+                return collection(db, `artifacts/${appId}/users/${userId}/text_samples`);
+            } else {
+                return collection(db, `artifacts/${appId}/profiles/${currentProfileName}/text_samples`);
+            }
         };
 
         const listenForSamples = () => {
@@ -341,18 +408,7 @@
 
         const getCategories = () => {
             const categorySet = new Set(samples.map(s => s.category).filter(c => c));
-            let categories = [...Array.from(categorySet).sort(), '全部'];
-
-            // Apply custom order if exists
-            const customOrder = JSON.parse(localStorage.getItem('hkt_category_order') || '[]');
-            if (customOrder.length > 0) {
-                // Sort by custom order, then append any new categories not in custom order
-                const ordered = customOrder.filter(c => categories.includes(c));
-                const unordered = categories.filter(c => !customOrder.includes(c));
-                categories = [...ordered, ...unordered];
-            }
-
-            return categories;
+            return [...Array.from(categorySet).sort(), '全部'];
         };
         
         const updateNewSampleCategoryOptions = () => {
@@ -501,27 +557,19 @@
             if (!samplesContainer || !filterContainer) return;
             
             const categories = getCategories();
-            const filteredSamples = currentCategoryFilter === '全部'
-                ? samples
-                : samples.filter(s => s.category === currentCategoryFilter);
+            let categoryFiltered = currentCategoryFilter === '全部' ? samples : samples.filter(s => s.category === currentCategoryFilter);
+            const lowerTerm = searchTerm ? searchTerm.toLowerCase().trim() : '';
+            const filteredSamples = lowerTerm ? categoryFiltered.filter(s => (s.title && s.title.toLowerCase().includes(lowerTerm)) || (s.content_ch && s.content_ch.toLowerCase().includes(lowerTerm)) || (s.content_en && s.content_en.toLowerCase().includes(lowerTerm))) : categoryFiltered;
 
-            filterContainer.innerHTML = categories.map((cat, idx) => `
-                <div class="inline-flex items-center gap-1 bg-white rounded-lg border shadow-sm">
-                    ${idx > 0 ? `<button onclick="window.app.moveCategoryUp('${cat}')" class="px-2 py-2 hover:bg-gray-100 transition" title="向左移動">
-                        <i data-lucide="chevron-left" class="w-3 h-3"></i>
-                    </button>` : '<span class="px-1"></span>'}
-                    <button 
-                        onclick="window.app.setCategoryFilter('${cat}')"
-                        class="px-4 py-2 text-sm font-semibold rounded transition duration-150 ${currentCategoryFilter === cat 
-                            ? 'bg-indigo-600 text-white' 
-                            : 'text-gray-700 hover:bg-indigo-50'}"
-                    >
-                        ${cat} (${cat === '全部' ? samples.length : samples.filter(s => s.category === cat).length})
-                    </button>
-                    ${idx < categories.length - 1 ? `<button onclick="window.app.moveCategoryDown('${cat}')" class="px-2 py-2 hover:bg-gray-100 transition" title="向右移動">
-                        <i data-lucide="chevron-right" class="w-3 h-3"></i>
-                    </button>` : '<span class="px-1"></span>'}
-                </div>
+            filterContainer.innerHTML = categories.map(cat => `
+                <button 
+                    onclick="window.app.setCategoryFilter('${cat}')"
+                    class="px-4 py-2 text-sm font-semibold rounded-full transition duration-150 ${currentCategoryFilter === cat 
+                        ? 'bg-indigo-600 text-white shadow-lg' 
+                        : 'bg-white text-gray-700 hover:bg-indigo-100 border border-gray-300'}"
+                >
+                    ${cat} (${cat === '全部' ? samples.length : samples.filter(s => s.category === cat).length})
+                </button>
             `).join('') + `
                 <button 
                     onclick="window.app.showAddCategoryModal()"
@@ -570,6 +618,50 @@
 
         // --- 10. 啟動應用程式 ---
         window.app = {
+            switchProfile: (name) => {
+                if (name === currentProfileName) return;
+                currentProfileName = name;
+                localStorage.setItem('hkt_current_profile', name);
+                renderUserTabs();
+                listenForSamples();
+            },
+
+            addProfile: () => {
+                const name = prompt("請輸入新用戶名稱：");
+                if (name && name.trim()) {
+                    const clean = name.trim();
+                    if (clean === '所有文本') {
+                        alert("此名稱為系統保留");
+                        return;
+                    }
+                    if (!profiles.includes(clean)) {
+                        profiles.push(clean);
+                        localStorage.setItem('hkt_profiles', JSON.stringify(profiles));
+                        window.app.switchProfile(clean);
+                    } else {
+                        alert("用戶已存在");
+                    }
+                }
+            },
+
+            deleteProfile: (name) => {
+                if (name === '所有文本') {
+                    alert("無法刪除系統保留的用戶");
+                    return;
+                }
+                if (!confirm(`確定要刪除用戶「${name}」嗎？\n\n注意：此操作不會刪除該用戶的文本數據，只是從列表中移除。`)) {
+                    return;
+                }
+                profiles = profiles.filter(p => p !== name);
+                localStorage.setItem('hkt_profiles', JSON.stringify(profiles));
+                if (name === currentProfileName) {
+                    window.app.switchProfile('所有文本');
+                } else {
+                    renderUserTabs();
+                }
+            },
+
+
             
             copyText: (id, lang) => {
                 const sample = samples.find(s => s.id === id);
@@ -728,6 +820,15 @@
                     
                 </h1>
                 <p class="text-indigo-600 font-medium text-lg">在這裡管理和修改您的文字作品集。</p>
+
+                <!-- USER TABS SECTION - HIGHLY VISIBLE -->
+                <div style="margin-top: 1rem; margin-bottom: 1rem; padding: 1rem; background: #f0f9ff; border: 2px solid #3b82f6; border-radius: 0.5rem;">
+                    <div id="user-tabs-container" style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
+                        <!-- JS will inject tabs here -->
+                        <span style="color: #6b7280; font-size: 0.875rem;">載入用戶中...</span>
+                    </div>
+                </div>
+                
                 
                 <div id="auth-status" class="mt-3 flex items-center space-x-2">
                     <i data-lucide="loader" class="lucide-icon w-4 h-4 animate-spin text-indigo-500"></i>
