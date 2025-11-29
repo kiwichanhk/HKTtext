@@ -73,45 +73,7 @@
         
         // --- 3. 認證與使用者設定 (關鍵修改) ---
         
-        
-        const renderUserTabs = () => {
-            const container = document.getElementById('user-tabs-container');
-            if (!container) return;
-
-            let html = profiles.map(p => `
-                <button 
-                    onclick="window.app.switchProfile('${p}')"
-                    class="px-3 py-1.5 rounded-lg text-sm font-semibold transition ${p === currentProfileName 
-                        ? 'bg-indigo-600 text-white shadow' 
-                        : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'}"
-                >
-                    ${p}
-                </button>
-            `).join('');
-
-            html += `
-                <button 
-                    onclick="window.app.addProfile()" 
-                    class="px-3 py-1.5 rounded-lg border-2 border-dashed border-gray-300 text-gray-500 hover:border-indigo-400 hover:text-indigo-600 text-sm font-semibold"
-                >
-                    + 新增
-                </button>
-            `;
-
-            container.innerHTML = html;
-        };
-
-        const setupSearchListener = () => {
-            const input = document.getElementById('search-input');
-            if (input) {
-                input.addEventListener('input', (e) => {
-                    searchTerm = e.target.value;
-                    renderUI();
-                });
-            }
-        };
-
-const signInAndListen = async () => {
+        const signInAndListen = async () => {
             if (!auth) return;
             
             onAuthStateChanged(auth, (user) => {
@@ -127,9 +89,7 @@ const signInAndListen = async () => {
                     lucide.createIcons();
                     
                     // 🚀 優化點：立即渲染 UI 骨架 (包含篩選器和新增分類按鈕)
-                    renderUI();
-                    setupSearchListener();
-                    renderUserTabs(); 
+                    renderUI(); 
 
                     if (db) {
                         listenForSamples();
@@ -152,12 +112,9 @@ const signInAndListen = async () => {
                 // 🚨 如果缺少 userId，返回 null，listenForSamples 將會退出
                 return null;
             }
-            // Profile routing logic
             if (currentProfileName === '所有文本') {
-                // "所有文本" shows original data from users/${userId} path
                 return collection(db, `artifacts/${appId}/users/${userId}/text_samples`);
             } else {
-                // Other profiles use new profiles/* path
                 return collection(db, `artifacts/${appId}/profiles/${currentProfileName}/text_samples`);
             }
         };
@@ -609,33 +566,6 @@ const signInAndListen = async () => {
 
         // --- 10. 啟動應用程式 ---
         window.app = {
-            switchProfile: (name) => {
-                if (name === currentProfileName) return;
-                currentProfileName = name;
-                localStorage.setItem('hkt_current_profile', name);
-                renderUserTabs();
-                listenForSamples(); // Reload data from the correct path
-            },
-
-            addProfile: () => {
-                const name = prompt("請輸入新用戶名稱：");
-                if (name && name.trim()) {
-                    const clean = name.trim();
-                    if (clean === '所有文本') {
-                        alert("此名稱為系統保留");
-                        return;
-                    }
-                    if (!profiles.includes(clean)) {
-                        profiles.push(clean);
-                        localStorage.setItem('hkt_profiles', JSON.stringify(profiles));
-                        window.app.switchProfile(clean);
-                    } else {
-                        alert("用戶已存在");
-                    }
-                }
-            },
-
-
             
             copyText: (id, lang) => {
                 const sample = samples.find(s => s.id === id);
