@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Quick Text</title>
+    <title>文字樣本與作品集</title>
     <!-- 載入 Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- 載入 Lucide Icons (用於美觀圖標) -->
@@ -52,6 +52,7 @@
         let app, db, auth, analytics, userId = null;
         let samples = [];
         let currentCategoryFilter = '全部';
+        let searchTerm = '';
         let activeEditId = null;
         const appId = 'default-app-id'; // 需要保留此變數供下方使用
 
@@ -341,7 +342,7 @@
 
         const getCategories = () => {
             const categorySet = new Set(samples.map(s => s.category).filter(c => c));
-            return ['全部', ...Array.from(categorySet)].sort();
+            return [...Array.from(categorySet).sort(), '全部'];
         };
         
         const updateNewSampleCategoryOptions = () => {
@@ -490,9 +491,19 @@
             if (!samplesContainer || !filterContainer) return;
             
             const categories = getCategories();
-            const filteredSamples = currentCategoryFilter === '全部'
+            let filtered = currentCategoryFilter === '全部'
                 ? samples
                 : samples.filter(s => s.category === currentCategoryFilter);
+
+            if (searchTerm) {
+                const lowerTerm = searchTerm.toLowerCase();
+                filtered = filtered.filter(s => 
+                    s.title.toLowerCase().includes(lowerTerm) || 
+                    s.content_ch.toLowerCase().includes(lowerTerm) || 
+                    (s.content_en && s.content_en.toLowerCase().includes(lowerTerm))
+                );
+            }
+            const filteredSamples = filtered;
 
             filterContainer.innerHTML = categories.map(cat => `
                 <button 
@@ -549,7 +560,21 @@
             lucide.createIcons();
         };
 
-        // --- 10. 啟動應用程式 ---
+        
+        // --- Search Listener Setup ---
+        const setupSearchListener = () => {
+            const searchInput = document.getElementById('search-input');
+            if (searchInput) {
+                searchInput.addEventListener('input', (e) => {
+                    searchTerm = e.target.value.trim();
+                    renderUI();
+                });
+            }
+        };
+        // Initialize search listener
+        setupSearchListener();
+
+// --- 10. 啟動應用程式 ---
         window.app = {
             
             copyText: (id, lang) => {
@@ -643,7 +668,7 @@
             </div>
             
             <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div class="col-span-2 space-y-4">
+                <div class="col-span-3 space-y-4">
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1">標題</label>
                         <input type="text" id="new-title" class="w-full border border-gray-300 p-3 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 transition shadow-sm" placeholder="為這個作品取個名字...">
@@ -666,25 +691,7 @@
                     </div>
                 </div>
                 
-                <div class="col-span-1 bg-gray-50 p-4 rounded-lg border border-gray-200">
-                    <div class="mb-4">
-                        <h3 class="font-bold text-gray-700 mb-2 flex items-center">
-                            <i data-lucide="lightbulb" class="lucide-icon w-4 h-4 mr-1 text-yellow-500"></i>
-                            寫作靈感
-                        </h3>
-                        <p class="text-sm text-gray-600">不確定該寫什麼？試試以下分類：</p>
-                        <ul class="list-disc list-inside text-sm text-gray-500 mt-2 space-y-1 ml-1">
-                            <li>文案撰寫</li>
-                            <li>創意寫作</li>
-                            <li>會議記錄</li>
-                            <li>日記隨筆</li>
-                            <li>詩歌創作</li>
-                        </ul>
-                    </div>
-                    
-                    
-                    
-                </div>
+                
             </div>
 
             <div class="flex justify-end mt-6 pt-4 border-t border-gray-100 space-x-3">
@@ -776,4 +783,3 @@
 
 </body>
 </html>
-
