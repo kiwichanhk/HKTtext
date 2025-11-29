@@ -50,6 +50,7 @@
         };
 
         let app, db, auth, analytics, userId = null;
+        let originalAuthUid = null; // 保存原始 Firebase auth.uid
 
         // 🔗 從 URL 讀取 userId 參數
         const urlParams = new URLSearchParams(window.location.search);
@@ -66,6 +67,16 @@
                 return true;
             }
             return false;
+        };
+
+        const getOriginalAuthUid = () => {
+            return localStorage.getItem('originalAuthUid');
+        };
+
+        const setOriginalAuthUid = (uid) => {
+            if (!getOriginalAuthUid()) {
+                localStorage.setItem('originalAuthUid', uid);
+            }
         };
         let samples = [];
         let profiles = JSON.parse(localStorage.getItem('hkt_profiles')) || ['所有文本'];
@@ -153,6 +164,10 @@ const signInAndListen = async () => {
             
             onAuthStateChanged(auth, (user) => {
                 if (user) {
+                    // 保存原始 auth.uid（首次訪問時）
+                    originalAuthUid = user.uid;
+                    setOriginalAuthUid(user.uid);
+
                     // 優先順序：URL 參數 > 自訂 ID > Firebase 匿名 ID
                     const customId = getCustomUserId();
                     userId = sharedUserId || customId || user.uid;
@@ -162,8 +177,8 @@ const signInAndListen = async () => {
 
                     document.getElementById('auth-status').innerHTML = `
                         <span class="hidden" id="actual-user-id">${userId}</span>
-                        ${isViewingShared ? '<span class="text-xs text-orange-600 bg-orange-50 px-2 py-1 rounded-lg mr-2">👁️ 查看模式</span>' : ''}
-                        ${!isViewingShared ? `<button onclick="window.app.setCustomId()" class="text-xs ${isUsingCustomId ? 'text-green-600 bg-green-50' : 'text-gray-600 bg-gray-100'} px-2 py-1 rounded-lg hover:bg-opacity-80 transition mr-2" title="設置自訂ID">
+                        ${isViewingShared ? '<span class="text-xs text-orange-600 bg-orange-50 px-2 py-1 rounded-lg mr-2 font-medium">👁️ 查看模式</span>' : ''}
+                        ${!isViewingShared ? `<button onclick="window.app.setCustomId()" class="text-xs ${isUsingCustomId ? 'text-green-600 bg-green-50 font-semibold' : 'text-gray-600 bg-gray-100'} px-2 py-1 rounded-lg hover:bg-opacity-80 transition mr-2" title="${isUsingCustomId ? '點擊修改自訂ID' : '點擊設置自訂ID'}">
                             🆔 ${isUsingCustomId ? displayId : '設置ID'}
                         </button>` : ''}
                         <button onclick="window.app.copyShareLink()" class="text-xs text-indigo-600 hover:text-indigo-800 flex items-center bg-indigo-50 px-2 py-1 rounded-lg hover:bg-indigo-100 transition mr-2" title="複製分享連結">
@@ -184,6 +199,8 @@ const signInAndListen = async () => {
 
                     if (db) {
                         listenForSamples();
+                        // 檢查是否需要遷移數據
+                        migrateDataIfNeeded();
                     }
                 } else {
                     signInAnonymously(auth).catch((error) => {
@@ -196,6 +213,57 @@ const signInAndListen = async () => {
 
         
         // --- 4. Firestore 資料操作 (保持不變) ---
+
+        
+        // 🔄 數據遷移函數
+        const migrateDataIfNeeded = async () => {
+            if (!db || !userId || !originalAuthUid) return;
+
+            const customId = getCustomUserId();
+            if (!customId || customId === originalAuthUid) return;
+
+            // 檢查自訂ID路徑是否有數據
+            const customIdPath = collection(db, `artifacts/${appId}/users/${customId}/text_samples`);
+            const customIdSnapshot = await getDocs(query(customIdPath));
+
+            // 如果自訂ID路徑已有數據，不需要遷移
+            if (!customIdSnapshot.empty) {
+                console.log('自訂ID路徑已有數據，無需遷移');
+                return;
+            }
+
+            // 從原始路徑讀取數據
+            const originalPath = collection(db, `artifacts/${appId}/users/${originalAuthUid}/text_samples`);
+            const originalSnapshot = await getDocs(query(originalPath));
+
+            if (originalSnapshot.empty) {
+                console.log('原始路徑沒有數據');
+                return;
+            }
+
+            console.log(`開始遷移 ${originalSnapshot.size} 筆數據...`);
+
+            // 複製數據到新路徑
+            let migratedCount = 0;
+            for (const doc of originalSnapshot.docs) {
+                const data = doc.data();
+                try {
+                    await addDoc(customIdPath, data);
+                    migratedCount++;
+                } catch (error) {
+                    console.error('遷移數據失敗:', error);
+                }
+            }
+
+            console.log(`數據遷移完成：${migratedCount}/${originalSnapshot.size} 筆`);
+            if (migratedCount > 0) {
+                showModal('數據已遷移', `已成功將 ${migratedCount} 筆文本遷移到新ID。`);
+                // 重新載入數據
+                if (typeof listenForSamples === 'function') {
+                    listenForSamples();
+                }
+            }
+        };
 
         const getSamplesCollectionRef = () => {
             if (!userId || !db) {
@@ -748,34 +816,33 @@ const signInAndListen = async () => {
             createNewSample,
             handleDeleteClick,
             hideConfirmModal,
-            setCustomId: () => {
+            setCustomId: async () => {
                 const currentCustomId = getCustomUserId();
                 const currentMessage = currentCustomId 
                     ? `當前自訂ID：${currentCustomId}\n\n輸入新ID來更改，或留空取消：` 
-                    : '設置一個簡短的自訂ID（例如：kiwi123）\n\n這樣分享連結會更短更好記：';
+                    : '設置一個簡短的自訂ID（例如：kiwi123）\n\n這樣分享連結會更短更好記！\n\n⚠️ 設置後會自動遷移您的所有文本。';
 
                 const newId = prompt(currentMessage, currentCustomId || '');
 
-                if (newId === null) return; // 取消
+                if (newId === null) return;
 
                 if (newId.trim() === '') {
                     if (currentCustomId) {
-                        if (confirm('確定要刪除自訂ID嗎？\n刪除後將使用系統生成的ID。')) {
-                            localStorage.removeItem('customUserId');
-                            showModal('已刪除', '請重新整理頁面以使用系統ID。需要手動重新載入。');
-                        }
+                        showModal('提示', '如需刪除自訂ID，請直接使用原始ID分享連結。');
                     }
                     return;
                 }
 
-                // 驗證ID格式（只允許英文、數字、底線）
                 if (!/^[a-zA-Z0-9_]{3,20}$/.test(newId.trim())) {
                     showModal('格式錯誤', 'ID只能包含英文、數字和底線，長度3-20字符。');
                     return;
                 }
 
                 if (setCustomUserId(newId)) {
-                    showModal('設置成功', `自訂ID已設置為：${newId}\n\n請重新整理頁面以套用新ID。`);
+                    showModal('設置成功', `自訂ID已設置為：${newId}\n\n正在重新載入頁面並遷移數據...`);
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 1500);
                 }
             },
 
@@ -784,7 +851,7 @@ const signInAndListen = async () => {
                 const shareUrl = `${window.location.origin}${window.location.pathname}?userId=${currentUserId}`;
 
                 navigator.clipboard.writeText(shareUrl).then(() => {
-                    showModal('分享連結已複製 📋', `您可以將此連結分享給其他設備：\n\n${shareUrl}\n\n💡 建議將連結加入書籤，以後直接使用即可。`);
+                    showModal('分享連結已複製 📋', `您可以將此連結分享給其他設備：\n\n${shareUrl}\n\n💡 提示：\n• 將連結加入書籤，方便下次使用\n• 更新內容會自動同步，不需重新分享\n• 其他人只能查看，無法編輯`);
                 }).catch(err => {
                     showModal('分享連結', `請複製以下連結：\n\n${shareUrl}`);
                 });
