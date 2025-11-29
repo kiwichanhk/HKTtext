@@ -408,7 +408,17 @@ const signInAndListen = async () => {
 
         const getCategories = () => {
             const categorySet = new Set(samples.map(s => s.category).filter(c => c));
-            return [...Array.from(categorySet).sort(), '全部'];
+            let categories = [...Array.from(categorySet).sort(), '全部'];
+
+            // Apply custom order
+            const customOrder = JSON.parse(localStorage.getItem('hkt_category_order') || '[]');
+            if (customOrder.length > 0) {
+                const ordered = customOrder.filter(c => categories.includes(c));
+                const unordered = categories.filter(c => !customOrder.includes(c));
+                categories = [...ordered, ...unordered];
+            }
+
+            return categories;
         };
         
         const updateNewSampleCategoryOptions = () => {
@@ -561,15 +571,23 @@ const signInAndListen = async () => {
             const lowerTerm = searchTerm ? searchTerm.toLowerCase().trim() : '';
             const filteredSamples = lowerTerm ? categoryFiltered.filter(s => (s.title && s.title.toLowerCase().includes(lowerTerm)) || (s.content_ch && s.content_ch.toLowerCase().includes(lowerTerm)) || (s.content_en && s.content_en.toLowerCase().includes(lowerTerm))) : categoryFiltered;
 
-            filterContainer.innerHTML = categories.map(cat => `
-                <button 
-                    onclick="window.app.setCategoryFilter('${cat}')"
-                    class="px-4 py-2 text-sm font-semibold rounded-full transition duration-150 ${currentCategoryFilter === cat 
-                        ? 'bg-indigo-600 text-white shadow-lg' 
-                        : 'bg-white text-gray-700 hover:bg-indigo-100 border border-gray-300'}"
-                >
-                    ${cat} (${cat === '全部' ? samples.length : samples.filter(s => s.category === cat).length})
-                </button>
+            filterContainer.innerHTML = categories.map((cat, idx) => `
+                <div class="inline-flex items-center bg-white rounded-full shadow-sm border border-gray-200">
+                    ${idx > 0 ? `<button onclick="window.app.moveCategoryLeft('${cat}')" class="pl-2 pr-1 py-2 hover:bg-gray-100 transition rounded-l-full" title="向左移動">
+                        ←
+                    </button>` : '<span class="w-2"></span>'}
+                    <button 
+                        onclick="window.app.setCategoryFilter('${cat}')"
+                        class="px-4 py-2 text-sm font-semibold transition duration-150 ${currentCategoryFilter === cat 
+                            ? 'bg-indigo-600 text-white' 
+                            : 'text-gray-700 hover:bg-indigo-100'}"
+                    >
+                        ${cat} (${cat === '全部' ? samples.length : samples.filter(s => s.category === cat).length})
+                    </button>
+                    ${idx < categories.length - 1 ? `<button onclick="window.app.moveCategoryRight('${cat}')" class="pr-2 pl-1 py-2 hover:bg-gray-100 transition rounded-r-full" title="向右移動">
+                        →
+                    </button>` : '<span class="w-2"></span>'}
+                </div>
             `).join('') + `
                 <button 
                     onclick="window.app.showAddCategoryModal()"
@@ -658,6 +676,26 @@ const signInAndListen = async () => {
                     window.app.switchProfile('所有文本');
                 } else {
                     renderUserTabs();
+                }
+            },
+
+            moveCategoryLeft: (cat) => {
+                const categories = getCategories();
+                const idx = categories.indexOf(cat);
+                if (idx > 0) {
+                    [categories[idx], categories[idx-1]] = [categories[idx-1], categories[idx]];
+                    localStorage.setItem('hkt_category_order', JSON.stringify(categories));
+                    renderUI();
+                }
+            },
+
+            moveCategoryRight: (cat) => {
+                const categories = getCategories();
+                const idx = categories.indexOf(cat);
+                if (idx < categories.length - 1) {
+                    [categories[idx], categories[idx+1]] = [categories[idx+1], categories[idx]];
+                    localStorage.setItem('hkt_category_order', JSON.stringify(categories));
+                    renderUI();
                 }
             },
 
@@ -821,10 +859,8 @@ const signInAndListen = async () => {
                 </h1>
                 <p class="text-indigo-600 font-medium text-lg">在這裡管理和修改您的文字作品集。</p>
 
-                <!-- USER TABS SECTION - HIGHLY VISIBLE -->
                 <div style="margin-top: 1rem; margin-bottom: 1rem; padding: 1rem; background: #f0f9ff; border: 2px solid #3b82f6; border-radius: 0.5rem;">
                     <div id="user-tabs-container" style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
-                        <!-- JS will inject tabs here -->
                         <span style="color: #6b7280; font-size: 0.875rem;">載入用戶中...</span>
                     </div>
                 </div>
