@@ -50,6 +50,10 @@
         };
 
         let app, db, auth, analytics, userId = null;
+
+        // 🔗 從 URL 讀取 userId 參數
+        const urlParams = new URLSearchParams(window.location.search);
+        const sharedUserId = urlParams.get('userId');
         let samples = [];
         let profiles = JSON.parse(localStorage.getItem('hkt_profiles')) || ['所有文本'];
         let currentProfileName = localStorage.getItem('hkt_current_profile') || '所有文本';
@@ -136,10 +140,16 @@ const signInAndListen = async () => {
             
             onAuthStateChanged(auth, (user) => {
                 if (user) {
-                    userId = user.uid;
+                    // 如果 URL 中有 userId 參數，優先使用它（用於查看分享的內容）
+                    userId = sharedUserId || user.uid;
                     document.getElementById('auth-status').innerHTML = `
                         <span class="hidden" id="actual-user-id">${userId}</span>
-                        <span class="text-sm text-gray-500 flex items-center" title="已連接 Firebase 資料庫">
+                        ${sharedUserId ? '<span class="text-xs text-orange-600 bg-orange-50 px-2 py-1 rounded mr-2">查看模式</span>' : ''}
+                        <button onclick="window.app.copyShareLink()" class="text-sm text-indigo-600 hover:text-indigo-800 flex items-center bg-indigo-50 px-3 py-1 rounded-lg hover:bg-indigo-100 transition" title="複製分享連結">
+                            <i data-lucide="share-2" class="lucide-icon w-4 h-4 mr-1"></i>
+                            分享
+                        </button>
+                        <span class="text-sm text-gray-500 flex items-center ml-2" title="已連接 Firebase 資料庫">
                             <i data-lucide="database" class="lucide-icon w-4 h-4 mr-1 text-indigo-500"></i>
                             已連接資料庫
                         </span>
@@ -717,6 +727,19 @@ const signInAndListen = async () => {
             createNewSample,
             handleDeleteClick,
             hideConfirmModal,
+            copyShareLink: () => {
+                const currentUserId = sharedUserId || userId;
+                const shareUrl = `${window.location.origin}${window.location.pathname}?userId=${currentUserId}`;
+
+                // 複製到剪貼板
+                navigator.clipboard.writeText(shareUrl).then(() => {
+                    showModal('分享連結已複製', `您可以將此連結分享給其他人：\n\n${shareUrl}\n\n其他人打開此連結後，可以查看您的所有文字樣本。`);
+                }).catch(err => {
+                    // 如果clipboard API失敗，顯示連結讓用戶手動複製
+                    showModal('分享連結', `請複製以下連結：\n\n${shareUrl}`);
+                });
+            },
+
             showAddSampleModal,
             hideAddSampleModal,
             showAddCategoryModal,
