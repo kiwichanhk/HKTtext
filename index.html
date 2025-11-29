@@ -571,24 +571,53 @@ const signInAndListen = async () => {
             const lowerTerm = searchTerm ? searchTerm.toLowerCase().trim() : '';
             const filteredSamples = lowerTerm ? categoryFiltered.filter(s => (s.title && s.title.toLowerCase().includes(lowerTerm)) || (s.content_ch && s.content_ch.toLowerCase().includes(lowerTerm)) || (s.content_en && s.content_en.toLowerCase().includes(lowerTerm))) : categoryFiltered;
 
-            filterContainer.innerHTML = categories.map((cat, idx) => `
-                <div class="inline-flex items-center bg-white rounded-full shadow-sm border border-gray-200">
-                    ${idx > 0 ? `<button onclick="window.app.moveCategoryLeft('${cat}')" class="pl-2 pr-1 py-2 hover:bg-gray-100 transition rounded-l-full" title="向左移動">
-                        ←
-                    </button>` : '<span class="w-2"></span>'}
-                    <button 
-                        onclick="window.app.setCategoryFilter('${cat}')"
-                        class="px-4 py-2 text-sm font-semibold transition duration-150 ${currentCategoryFilter === cat 
-                            ? 'bg-indigo-600 text-white' 
-                            : 'text-gray-700 hover:bg-indigo-100'}"
-                    >
-                        ${cat} (${cat === '全部' ? samples.length : samples.filter(s => s.category === cat).length})
-                    </button>
-                    ${idx < categories.length - 1 ? `<button onclick="window.app.moveCategoryRight('${cat}')" class="pr-2 pl-1 py-2 hover:bg-gray-100 transition rounded-r-full" title="向右移動">
-                        →
-                    </button>` : '<span class="w-2"></span>'}
-                </div>
-            `).join('') + `
+            // 產生分類清單（維持原本 getCategories 不變的情況下）
+// 如果你已有 getCategories，就不用改這裡，只改下面 render 部分即可。
+
+filterContainer.innerHTML = categories
+  .map((cat, idx) => `
+    <div class="inline-flex items-center gap-1 mr-2 mb-2">
+      ${
+        idx > 0
+          ? `<button
+                onclick="window.app.moveCategoryLeft('${cat}')"
+                class="w-6 h-6 flex items-center justify-center rounded-md text-gray-400 hover:text-gray-700 hover:bg-gray-100 text-xs"
+                title="向左移動"
+             >←</button>`
+          : ''
+      }
+
+      <button
+        onclick="window.app.setCategoryFilter('${cat}')"
+        class="
+          px-3 py-1.5 text-sm font-medium rounded-md border transition
+          ${
+            currentCategoryFilter === '${cat}'
+              ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+              : 'bg-white text-gray-700 border-gray-200 hover:bg-indigo-50'
+          }
+        "
+      >
+        ${cat} (${
+          cat === '全部'
+            ? samples.length
+            : samples.filter(s => s.category === cat).length
+        })
+      </button>
+
+      ${
+        idx < categories.length - 1
+          ? `<button
+                onclick="window.app.moveCategoryRight('${cat}')"
+                class="w-6 h-6 flex items-center justify-center rounded-md text-gray-400 hover:text-gray-700 hover:bg-gray-100 text-xs"
+                title="向右移動"
+             >→</button>`
+          : ''
+      }
+    </div>
+  `)
+  .join('');
+
                 <button 
                     onclick="window.app.showAddCategoryModal()"
                     class="px-4 py-2 text-sm font-semibold rounded-full transition duration-150 bg-indigo-50 border border-indigo-300 text-indigo-700 hover:bg-indigo-200 flex items-center"
@@ -933,3 +962,4 @@ const signInAndListen = async () => {
 
 </body>
 </html>
+
