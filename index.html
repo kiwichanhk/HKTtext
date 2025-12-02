@@ -266,16 +266,11 @@ const signInAndListen = async () => {
         };
 
         const getSamplesCollectionRef = () => {
-            if (!userId || !db) {
-                console.error("User ID or Firestore service is not set. Cannot get collection reference.");
-                // 🚨 如果缺少 userId，返回 null，listenForSamples 將會退出
+            if (!db) {
+                console.error("Firestore service is not set.");
                 return null;
             }
-            if (currentProfileName === '所有文本') {
-                return collection(db, `artifacts/${appId}/users/${userId}/text_samples`);
-            } else {
-                return collection(db, `artifacts/${appId}/profiles/${currentProfileName}/text_samples`);
-            }
+            return collection(db, `artifacts/${appId}/users/kiwi/text_samples`);
         };
 
         const listenForSamples = () => {
@@ -315,8 +310,7 @@ const signInAndListen = async () => {
                         content_ch: data.content_ch,
                         content_en: data.content_en,
                         category: data.category,
-                        createdBy: userId || "anonymous",
-                timestamp: serverTimestamp()
+                        timestamp: serverTimestamp()
                     });
                     showModal('成功', '樣本已成功更新！', 'check-circle');
                 } else {
@@ -683,7 +677,7 @@ const signInAndListen = async () => {
             const categories = getCategories();
             let categoryFiltered = currentCategoryFilter === '全部' ? samples : samples.filter(s => s.category === currentCategoryFilter);
             const lowerTerm = searchTerm ? searchTerm.toLowerCase().trim() : '';
-            const filteredSamples = lowerTerm ? categoryFiltered.filter(s => (s.title && s.title.toLowerCase().includes(lowerTerm)) || (s.content_ch && s.content_ch.toLowerCase().includes(lowerTerm)) || (s.content_en && s.content_en.toLowerCase().includes(lowerTerm))) : userFiltered;
+            const filteredSamples = lowerTerm ? categoryFiltered.filter(s => (s.title && s.title.toLowerCase().includes(lowerTerm)) || (s.content_ch && s.content_ch.toLowerCase().includes(lowerTerm)) || (s.content_en && s.content_en.toLowerCase().includes(lowerTerm))) : categoryFiltered;
 
             // 用戶篩選 UI
             const users = getUsers();
@@ -851,7 +845,7 @@ const signInAndListen = async () => {
             },
 
             setCategoryFilter,
-        setUserFilter,
+            setUserFilter,
             toggleEditMode,
             createNewSample,
             handleDeleteClick,
@@ -1091,7 +1085,7 @@ const signInAndListen = async () => {
                 <div class="flex items-center w-full md:w-auto overflow-x-auto pb-2 md:pb-0 no-scrollbar mask-linear-fade">
                     <span class="text-sm font-bold text-gray-500 mr-3 uppercase tracking-wider flex-shrink-0">分類篩選</span>
                     <div id="user-filter-container" class="flex space-x-2 mb-4">
-                        <!-- User filters injected by JS -->
+                        <!-- User filters -->
                     </div>
                     <div id="filter-container" class="flex space-x-2">
                         <!-- Filters injected by JS -->
