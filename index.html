@@ -223,7 +223,7 @@ const signInAndListen = async () => {
             if (!customId || customId === originalAuthUid) return;
 
             // 檢查自訂ID路徑是否有數據
-            const customIdPath = collection(db, `artifacts/${appId}/users/${customId}/text_samples`);
+            const customIdPath = collection(db, `artifacts/${appId}/profiles/${customId}/text_samples`);
             const customIdSnapshot = await getDocs(query(customIdPath));
 
             // 如果自訂ID路徑已有數據，不需要遷移
@@ -233,7 +233,7 @@ const signInAndListen = async () => {
             }
 
             // 從原始路徑讀取數據
-            const originalPath = collection(db, `artifacts/${appId}/users/${originalAuthUid}/text_samples`);
+            const originalPath = collection(db, `artifacts/${appId}/profiles/${originalAuthUid}/text_samples`);
             const originalSnapshot = await getDocs(query(originalPath));
 
             if (originalSnapshot.empty) {
@@ -272,7 +272,7 @@ const signInAndListen = async () => {
                 return null;
             }
             if (currentProfileName === '所有文本') {
-                return collection(db, `artifacts/${appId}/users/${userId}/text_samples`);
+                return collection(db, `artifacts/${appId}/profiles/${userId}/text_samples`);
             } else {
                 return collection(db, `artifacts/${appId}/profiles/${currentProfileName}/text_samples`);
             }
@@ -1073,3 +1073,4 @@ const signInAndListen = async () => {
 
 </body>
 </html>
+
