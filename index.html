@@ -79,6 +79,9 @@
             }
         };
         let samples = [];
+        let currentCategoryFilter = "";
+        let currentUserFilter = "";
+        let searchTerm = "";
         let profiles = JSON.parse(localStorage.getItem('hkt_profiles')) || ['所有文本'];
         let currentProfileName = localStorage.getItem('hkt_current_profile') || '所有文本';
         let currentCategoryFilter = '全部';
