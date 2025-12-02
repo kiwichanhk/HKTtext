@@ -714,9 +714,24 @@ const signInAndListen = async () => {
             if (!samplesContainer || !filterContainer) return;
             
             const categories = getCategories();
-            let categoryFiltered = currentCategoryFilter === '全部' ? samples : samples.filter(s => s.category === currentCategoryFilter);
+
+            // ① 先依分類篩選
+            let categoryFiltered = currentCategoryFilter === '全部'
+                ? samples
+                : samples.filter(s => s.category === currentCategoryFilter);
+
+            // ② 再依用戶篩選
+            let userFiltered = currentUserFilter
+                ? categoryFiltered.filter(s => s.createdBy === currentUserFilter)
+                : categoryFiltered;
+
+            // ③ 最後做關鍵字搜尋
             const lowerTerm = searchTerm ? searchTerm.toLowerCase().trim() : '';
-            const filteredSamples = lowerTerm ? categoryFiltered.filter(s => (s.title && s.title.toLowerCase().includes(lowerTerm)) || (s.content_ch && s.content_ch.toLowerCase().includes(lowerTerm)) || (s.content_en && s.content_en.toLowerCase().includes(lowerTerm))) : categoryFiltered;
+            const filteredSamples = lowerTerm ? userFiltered.filter(s =>
+                (s.title && s.title.toLowerCase().includes(lowerTerm)) ||
+                (s.content_ch && s.content_ch.toLowerCase().includes(lowerTerm)) ||
+                (s.content_en && s.content_en.toLowerCase().includes(lowerTerm))
+            ) : userFiltered;
 
             filterContainer.innerHTML = categories.map((cat, idx) => `
                 <div class="inline-flex items-center bg-white rounded-lg shadow-md border border-gray-200 hover:shadow-lg transition-shadow">
