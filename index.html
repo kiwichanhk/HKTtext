@@ -324,7 +324,6 @@ const signInAndListen = async () => {
                         content_ch: data.content_ch || '',
                         content_en: data.content_en || '',
                         category: data.category || '未分類',
-                        createdBy: userId || 'anonymous',
                         timestamp: serverTimestamp()
                     });
                     showModal('成功', '新的文字樣本已建立！', 'plus-circle');
@@ -501,26 +500,9 @@ const signInAndListen = async () => {
             renderUI();
         };
 
-        
-        const setUserFilter = (user) => {
-            currentUserFilter = user;
-            renderUI();
-        };
-
         const setCategoryFilter = (category) => {
             currentCategoryFilter = category;
             renderUI();
-        };
-
-        
-        const getUsers = () => {
-            const userSet = new Set();
-            samples.forEach(s => {
-                if (s.createdBy) {
-                    userSet.add(s.createdBy);
-                }
-            });
-            return Array.from(userSet).sort();
         };
 
         const getCategories = () => {
@@ -540,35 +522,6 @@ const signInAndListen = async () => {
         
         const updateNewSampleCategoryOptions = () => {
             const categories = getCategories();
-
-            // 用戶篩選 UI
-            const users = getUsers();
-            const userFilterContainer = document.getElementById('user-filter-container');
-            if (userFilterContainer) {
-                if (!users || users.length === 0) {
-                    userFilterContainer.innerHTML = '';
-                } else {
-                    userFilterContainer.innerHTML = `
-                        <span class="text-sm font-bold text-gray-500 mr-3">用戶：</span>
-                        <button
-                            onclick="window.app.setUserFilter('')"
-                            class="px-3 py-1.5 text-sm rounded-full mr-1 ${!currentUserFilter ? 'bg-purple-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-purple-100'}"
-                        >
-                            全部 (${samples.length})
-                        </button>
-                        ${users.map(user => `
-                            <button
-                                onclick="window.app.setUserFilter('${user}')"
-                                class="px-3 py-1.5 text-sm rounded-full mr-1 ${currentUserFilter === user ? 'bg-purple-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-purple-100'}"
-                            >
-                                ${user}
-                            </button>
-                        `).join('')}
-                    `;
-                }
-            }
-
-
             const categorySelect = document.getElementById('new-category');
             if (!categorySelect) return;
 
@@ -641,8 +594,7 @@ const signInAndListen = async () => {
                         </div>
                     </div>
 
-                    <div class="mb-4 text-sm font-medium flex items-center justify-between">
-                    <div class="text-indigo-600 flex items-center">
+                    <div class="mb-4 text-sm font-medium text-indigo-600 flex items-center">
                         <i data-lucide="tag" class="lucide-icon w-4 h-4 mr-1"></i>
                         ${isEditing ? editCategorySelect : `
                             <span class="px-3 py-1 bg-indigo-100 text-indigo-700 rounded-full text-xs font-semibold">${sample.category}</span>
@@ -1098,8 +1050,7 @@ const signInAndListen = async () => {
             <div class="flex flex-col md:flex-row justify-between items-center space-y-4 md:space-y-0">
                 <div class="flex items-center w-full md:w-auto overflow-x-auto pb-2 md:pb-0 no-scrollbar mask-linear-fade">
                     <span class="text-sm font-bold text-gray-500 mr-3 uppercase tracking-wider flex-shrink-0">分類篩選</span>
-                    <div id="user-filter-container" class="flex space-x-2 mr-4"></div>
-                        <div id="filter-container" class="flex space-x-2">
+                    <div id="filter-container" class="flex space-x-2">
                         <!-- Filters injected by JS -->
                         <span class="text-gray-400 text-sm italic">載入分類中...</span>
                     </div>
