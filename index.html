@@ -323,8 +323,8 @@ const signInAndListen = async () => {
                         title: data.title || '無標題樣本',
                         content_ch: data.content_ch || '',
                         content_en: data.content_en || '',
-                        category: data.category,
-                    createdBy: userId || 'anonymous', || '未分類',
+                        category: data.category || '未分類',
+                        createdBy: userId || 'anonymous',
                         timestamp: serverTimestamp()
                     });
                     showModal('成功', '新的文字樣本已建立！', 'plus-circle');
@@ -714,24 +714,9 @@ const signInAndListen = async () => {
             if (!samplesContainer || !filterContainer) return;
             
             const categories = getCategories();
-
-            // ① 先依分類篩選
-            let categoryFiltered = currentCategoryFilter === '全部'
-                ? samples
-                : samples.filter(s => s.category === currentCategoryFilter);
-
-            // ② 再依用戶篩選
-            let userFiltered = currentUserFilter
-                ? categoryFiltered.filter(s => s.createdBy === currentUserFilter)
-                : categoryFiltered;
-
-            // ③ 最後做關鍵字搜尋
+            let categoryFiltered = currentCategoryFilter === '全部' ? samples : samples.filter(s => s.category === currentCategoryFilter);
             const lowerTerm = searchTerm ? searchTerm.toLowerCase().trim() : '';
-            const filteredSamples = lowerTerm ? userFiltered.filter(s =>
-                (s.title && s.title.toLowerCase().includes(lowerTerm)) ||
-                (s.content_ch && s.content_ch.toLowerCase().includes(lowerTerm)) ||
-                (s.content_en && s.content_en.toLowerCase().includes(lowerTerm))
-            ) : userFiltered;
+            const filteredSamples = lowerTerm ? categoryFiltered.filter(s => (s.title && s.title.toLowerCase().includes(lowerTerm)) || (s.content_ch && s.content_ch.toLowerCase().includes(lowerTerm)) || (s.content_en && s.content_en.toLowerCase().includes(lowerTerm))) : categoryFiltered;
 
             filterContainer.innerHTML = categories.map((cat, idx) => `
                 <div class="inline-flex items-center bg-white rounded-lg shadow-md border border-gray-200 hover:shadow-lg transition-shadow">
