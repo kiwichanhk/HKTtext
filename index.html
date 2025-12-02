@@ -82,6 +82,7 @@
         let profiles = JSON.parse(localStorage.getItem('hkt_profiles')) || ['所有文本'];
         let currentProfileName = localStorage.getItem('hkt_current_profile') || '所有文本';
         let currentCategoryFilter = '全部';
+        let currentUserFilter = '';
         let searchTerm = '';
         let activeEditId = null;
         const appId = 'default-app-id'; // 需要保留此變數供下方使用
@@ -315,7 +316,8 @@ const signInAndListen = async () => {
                         content_ch: data.content_ch,
                         content_en: data.content_en,
                         category: data.category,
-                        timestamp: serverTimestamp()
+                        createdBy: userId || "anonymous",
+                    timestamp: serverTimestamp()
                     });
                     showModal('成功', '樣本已成功更新！', 'check-circle');
                 } else {
@@ -537,6 +539,26 @@ const signInAndListen = async () => {
         };
         
         const updateNewSampleCategoryOptions = () => {
+            
+            // 用戶篩選 UI
+            const users = getUsers();
+            const userFilterContainer = document.getElementById('user-filter-container');
+            if (userFilterContainer && users.length > 0) {
+                userFilterContainer.innerHTML = `
+                    <span class="text-sm font-bold text-gray-500 mr-3">用戶：</span>
+                    <button onclick="window.app.setUserFilter('')" 
+                        class="px-4 py-2 text-sm rounded-lg ${!currentUserFilter ? 'bg-purple-600 text-white' : 'bg-gray-100'}">
+                        全部
+                    </button>
+                    ${users.map(user => `
+                        <button onclick="window.app.setUserFilter('${user}')" 
+                            class="px-4 py-2 text-sm rounded-lg ${currentUserFilter === user ? 'bg-purple-600 text-white' : 'bg-gray-100'}">
+                            ${user}
+                        </button>
+                    `).join('')}
+                `;
+            }
+
             const categories = getCategories();
             const categorySelect = document.getElementById('new-category');
             if (!categorySelect) return;
@@ -684,9 +706,9 @@ const signInAndListen = async () => {
             
             const categories = getCategories();
             let categoryFiltered = currentCategoryFilter === '全部' ? samples : samples.filter(s => s.category === currentCategoryFilter);
-            let userFiltered = currentUserFilter ? categoryFiltered.filter(s => s.createdBy === currentUserFilter) : categoryFiltered;
+            let userFiltered = currentUserFilter ? categoryFiltered.filter(s => s.createdBy === currentUserFilter) : userFiltered;
             const lowerTerm = searchTerm ? searchTerm.toLowerCase().trim() : '';
-            const filteredSamples = lowerTerm ? userFiltered.filter(s => (s.title && s.title.toLowerCase().includes(lowerTerm)) || (s.content_ch && s.content_ch.toLowerCase().includes(lowerTerm)) || (s.content_en && s.content_en.toLowerCase().includes(lowerTerm))) : userFiltered;
+            const filteredSamples = lowerTerm ? userFiltered.filter(s => (s.title && s.title.toLowerCase().includes(lowerTerm)) || (s.content_ch && s.content_ch.toLowerCase().includes(lowerTerm)) || (s.content_en && s.content_en.toLowerCase().includes(lowerTerm))) : categoryFiltered;
 
             filterContainer.innerHTML = categories.map((cat, idx) => `
                 <div class="inline-flex items-center bg-white rounded-lg shadow-md border border-gray-200 hover:shadow-lg transition-shadow">
