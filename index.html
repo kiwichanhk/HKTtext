@@ -76,8 +76,7 @@
         };
         
         let samples = [];
-        let profiles = JSON.parse(localStorage.getItem('hkt_profiles')) || ['所有文本'];
-        let currentProfileName = localStorage.getItem('hkt_current_profile') || '所有文本';
+        // [移除 Profile 邏輯: profiles, currentProfileName]
         let currentCategoryFilter = '全部';
         let searchTerm = '';
         let activeEditId = null;
@@ -131,46 +130,7 @@
         
         // --- 3. 認證與監聽 ---
 
-        const renderUserTabs = () => {
-            const container = document.getElementById('user-tabs-container');
-            if (!container) return;
-
-            let html = profiles.map(p => {
-                const isActive = p === currentProfileName;
-                const isDeletable = p !== '所有文本';
-
-                return `
-                <div style="display: inline-flex; align-items: center; gap: 0.25rem; padding: 0.375rem 0.75rem; border-radius: 0.5rem; background: ${isActive ? '#4f46e5' : '#ffffff'}; color: ${isActive ? '#ffffff' : '#374151'}; border: 1px solid ${isActive ? '#4f46e5' : '#d1d5db'}; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
-                    <button 
-                        onclick="window.app.switchProfile('${p}')"
-                        style="background: none; border: none; cursor: pointer; font-weight: 600; font-size: 0.875rem; color: inherit; padding: 0;"
-                    >
-                        ${p}
-                    </button>
-                    ${isDeletable ? `
-                        <button 
-                            onclick="event.stopPropagation(); window.app.deleteProfile('${p}')" 
-                            style="background: none; border: none; cursor: pointer; padding: 0.25rem; margin-left: 0.25rem; color: ${isActive ? '#ffffff' : '#9ca3af'};"
-                            title="刪除用戶"
-                        >
-                            ✕
-                        </button>
-                    ` : ''}
-                </div>
-                `;
-            }).join('');
-
-            html += `
-                <button 
-                    onclick="window.app.addProfile()" 
-                    style="padding: 0.375rem 0.75rem; border-radius: 0.5rem; border: 2px dashed #d1d5db; background: transparent; color: #6b7280; cursor: pointer; font-weight: 600; font-size: 0.875rem;"
-                >
-                    + 新增
-                </button>
-            `;
-
-            container.innerHTML = html;
-        };
+        // [移除 renderUserTabs 函數]
 
         const setupSearchListener = () => {
             const input = document.getElementById('search-input');
@@ -215,7 +175,7 @@
                     
                     renderUI();
                     setupSearchListener();
-                    renderUserTabs(); 
+                    // [移除 renderUserTabs 呼叫]
 
                     if (db) {
                         listenForSamples();
@@ -253,7 +213,10 @@
             const batch = writeBatch(db);
             for (const doc of originalSnapshot.docs) {
                 try {
-                    batch.set(doc(customIdPath), doc.data());
+                    // [移除 profile 欄位設置]
+                    const data = doc.data();
+                    delete data.profile; // 移除 profile 欄位
+                    batch.set(doc(customIdPath), data);
                     batch.delete(doc(originalPath, doc.id));
                     migratedCount++;
                 } catch (e) { console.error(e); }
@@ -266,14 +229,8 @@
 
         const getSamplesCollectionRef = () => {
             if (!userId || !db) return null;
-            // 這裡使用 currentProfileName 來決定路徑
-            if (currentProfileName === '所有文本') {
-                return collection(db, `artifacts/${appId}/users/${userId}/text_samples`);
-            } else {
-                // 將來可改為: return collection(db, `artifacts/${appId}/profiles/${currentProfileName}/text_samples`);
-                // 目前先保持在 user path 下，但用 profile name 區分 data
-                return collection(db, `artifacts/${appId}/users/${userId}/text_samples`);
-            }
+            // 由於不再有 profile，直接使用 user path
+            return collection(db, `artifacts/${appId}/users/${userId}/text_samples`);
         };
 
         const listenForSamples = () => {
@@ -288,10 +245,7 @@
                     ...doc.data()
                 }));
                 
-                // ⭐ 過濾樣本：如果不是「所有文本」，則只顯示該 Profile 的樣本
-                if (currentProfileName !== '所有文本') {
-                    samples = samples.filter(s => s.profile === currentProfileName);
-                }
+                // [移除 Profile 樣本過濾邏輯]
                 
                 // ⭐ 動態更新成員列表 (Restored Member logic)
                 const dbMembers = new Set(samples.map(s => s.member).filter(m => m));
@@ -378,8 +332,7 @@
                     category: data.category,
                     // ⭐ 恢復 member 欄位
                     member: data.member || '通用',
-                    // ⭐ 處理 Profile 歸屬
-                    profile: currentProfileName, 
+                    // [移除 profile 欄位]
                     timestamp: serverTimestamp()
                 };
 
@@ -917,53 +870,9 @@
 
         // --- 7. 暴露給 Window ---
         window.app = {
-            switchProfile: (name) => {
-                if (name === currentProfileName) return;
-                currentProfileName = name;
-                localStorage.setItem('hkt_current_profile', name);
-                
-                // 重置篩選器，避免在新作品集中找不到
-                currentMemberFilter = '全部';
-                currentCategoryFilter = '全部';
-                
-                renderUserTabs();
-                listenForSamples();
-            },
-
-            addProfile: () => {
-                const name = prompt("請輸入新用戶名稱：");
-                if (name && name.trim()) {
-                    const clean = name.trim();
-                    if (clean === '所有文本') {
-                        showModal('保留名稱', '「所有文本」為系統保留名稱，請使用其他名稱。', 'alert-triangle');
-                        return;
-                    }
-                    if (!profiles.includes(clean)) {
-                        profiles.push(clean);
-                        localStorage.setItem('hkt_profiles', JSON.stringify(profiles));
-                        window.app.switchProfile(clean);
-                    } else {
-                        showModal('用戶已存在', '此用戶名稱已存在。', 'alert-triangle');
-                    }
-                }
-            },
-
-            deleteProfile: (name) => {
-                if (name === '所有文本') {
-                    showModal('保留名稱', '無法刪除系統保留的用戶「所有文本」。', 'alert-triangle');
-                    return;
-                }
-                if (!confirm(`確定要刪除用戶「${name}」嗎？\n\n注意：此操作不會刪除該用戶的文本數據，只是從列表中移除。`)) {
-                    return;
-                }
-                profiles = profiles.filter(p => p !== name);
-                localStorage.setItem('hkt_profiles', JSON.stringify(profiles));
-                if (name === currentProfileName) {
-                    window.app.switchProfile('所有文本');
-                } else {
-                    renderUserTabs();
-                }
-            },
+            // [移除 switchProfile 函數]
+            // [移除 addProfile 函數]
+            // [移除 deleteProfile 函數]
             
             moveCategoryLeft,
             moveCategoryRight,
@@ -1164,12 +1073,7 @@
                 <div class="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 mb-4">
                     <div>
                         <h1 class="text-3xl md:text-4xl font-extrabold text-gray-900 tracking-tight mb-2">KIWI QUICK TEXT</h1>
-                        <p class="text-indigo-600 font-medium text-lg">在這裡管理和修改您的文字作品集。</p>
-
-                        <div class="mt-3">
-                            <div id="user-tabs-container" class="inline-flex flex-wrap gap-2 items-center"></div>
                         </div>
-                    </div>
 
                     <div class="flex flex-row items-center justify-end gap-3 mt-4 lg:mt-0">
                         <div id="auth-status" class="flex items-center space-x-2 bg-white px-3 py-1 rounded-full shadow border border-gray-200 text-sm text-gray-500">
