@@ -4,12 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>文字樣本與作品集</title>
-    <!-- 載入 Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- 載入 Lucide Icons (用於美觀圖標) -->
     <script src="https://unpkg.com/lucide@latest"></script>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&family=Noto+Sans+TC:wght@100..900&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&family=Noto+Sans+TC:wght=100..900&display=swap');
         body {
             font-family: 'Noto Sans TC', 'Inter', sans-serif;
             background-color: #f7f7f9;
@@ -29,12 +27,20 @@
         .modal-content-transition {
             transition: transform 0.3s ease-out;
         }
+        /* 讓篩選器可以捲動 */
+        .filter-scroll {
+            overflow-x: auto;
+            -ms-overflow-style: none; /* IE and Edge */
+            scrollbar-width: none; /* Firefox */
+        }
+        .filter-scroll::-webkit-scrollbar {
+            display: none; /* Chrome, Safari and Opera */
+        }
     </style>
-    <!-- Firebase SDK Imports -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
         import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
-        import { getFirestore, doc, getDoc, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, collection, query, where, getDocs, serverTimestamp, orderBy } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+        import { getFirestore, doc, addDoc, updateDoc, deleteDoc, onSnapshot, collection, query, getDocs, serverTimestamp, writeBatch } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
         import { getAnalytics } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-analytics.js";
 
         
@@ -50,17 +56,12 @@
         };
 
         let app, db, auth, analytics, userId = null;
-        let originalAuthUid = null; // 保存原始 Firebase auth.uid
+        let originalAuthUid = null; 
 
-        // 🔗 從 URL 讀取 userId 參數
         const urlParams = new URLSearchParams(window.location.search);
         const sharedUserId = urlParams.get('userId');
 
-        // 🆔 自訂 userId 管理
-        const getCustomUserId = () => {
-            return localStorage.getItem('customUserId');
-        };
-
+        const getCustomUserId = () => localStorage.getItem('customUserId');
         const setCustomUserId = (customId) => {
             if (customId && customId.trim()) {
                 localStorage.setItem('customUserId', customId.trim());
@@ -69,22 +70,22 @@
             return false;
         };
 
-        const getOriginalAuthUid = () => {
-            return localStorage.getItem('originalAuthUid');
-        };
-
+        const getOriginalAuthUid = () => localStorage.getItem('originalAuthUid');
         const setOriginalAuthUid = (uid) => {
-            if (!getOriginalAuthUid()) {
-                localStorage.setItem('originalAuthUid', uid);
-            }
+            if (!getOriginalAuthUid()) localStorage.setItem('originalAuthUid', uid);
         };
+        
         let samples = [];
         let profiles = JSON.parse(localStorage.getItem('hkt_profiles')) || ['所有文本'];
         let currentProfileName = localStorage.getItem('hkt_current_profile') || '所有文本';
         let currentCategoryFilter = '全部';
         let searchTerm = '';
         let activeEditId = null;
-        const appId = 'default-app-id'; // 需要保留此變數供下方使用
+        const appId = 'default-app-id';
+        
+        // ⭐ 恢復成員變數 (Member Variables Restored)
+        let members = JSON.parse(localStorage.getItem('hkt_members')) || ['通用']; 
+        let currentMemberFilter = '全部'; 
 
         // 初始化 Firebase
         try {
@@ -92,16 +93,44 @@
             analytics = getAnalytics(app);
             auth = getAuth(app);
             db = getFirestore(app);
-            console.log("Firebase initialized successfully");
         } catch (error) {
             console.error("Firebase init error:", error);
-            alert("Firebase 初始化失敗: " + error.message);
+            showModal('Firebase 初始化失敗', error.message, 'alert-octagon');
         }
 
         
-        // --- 3. 認證與使用者設定 (關鍵修改) ---
+        // --- 2. 核心功能: 彈窗統一 ---
+
+        const hideModal = () => {
+            const modal = document.getElementById('custom-modal');
+            modal.classList.remove('opacity-100');
+            modal.classList.add('opacity-0', 'pointer-events-none');
+        };
+
+        const showModal = (title, message, icon = 'info') => {
+            const modal = document.getElementById('custom-modal');
+            document.getElementById('modal-title').textContent = title;
+            document.getElementById('modal-message').textContent = message;
+            
+            let iconColor = 'text-indigo-600';
+            if (icon === 'alert-triangle' || icon === 'alert-octagon') iconColor = 'text-red-500';
+            if (icon === 'check' || icon === 'check-circle') iconColor = 'text-green-500';
+            if (icon === 'pin') iconColor = 'text-yellow-600';
+
+            const iconHtml = `<i data-lucide="${icon}" class="lucide-icon ${iconColor} w-6 h-6 mr-2"></i>`;
+            document.getElementById('modal-icon-container').innerHTML = iconHtml;
+            lucide.createIcons();
+
+            modal.classList.remove('opacity-0', 'pointer-events-none');
+            modal.classList.add('opacity-100');
+
+            setTimeout(() => {
+                hideModal();
+            }, 5000);
+        };
         
-        
+        // --- 3. 認證與監聽 ---
+
         const renderUserTabs = () => {
             const container = document.getElementById('user-tabs-container');
             if (!container) return;
@@ -153,22 +182,14 @@
             }
         };
 
-        if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', renderUserTabs);
-        } else {
-            renderUserTabs();
-        }
-
-const signInAndListen = async () => {
+        const signInAndListen = async () => {
             if (!auth) return;
             
             onAuthStateChanged(auth, (user) => {
                 if (user) {
-                    // 保存原始 auth.uid（首次訪問時）
                     originalAuthUid = user.uid;
                     setOriginalAuthUid(user.uid);
 
-                    // 優先順序：URL 參數 > 自訂 ID > Firebase 匿名 ID
                     const customId = getCustomUserId();
                     userId = sharedUserId || customId || user.uid;
                     const isUsingCustomId = getCustomUserId() !== null;
@@ -192,95 +213,72 @@ const signInAndListen = async () => {
                     `;
                     lucide.createIcons();
                     
-                    // 🚀 優化點：立即渲染 UI 骨架 (包含篩選器和新增分類按鈕)
                     renderUI();
                     setupSearchListener();
                     renderUserTabs(); 
 
                     if (db) {
                         listenForSamples();
-                        // 檢查是否需要遷移數據
                         migrateDataIfNeeded();
                     }
                 } else {
                     signInAnonymously(auth).catch((error) => {
                         console.error("Sign in failed:", error);
-                        showModal('認證錯誤', '無法登入: ' + error.message);
+                        showModal('認證錯誤', '無法登入: ' + error.message, 'alert-octagon');
                     });
                 }
             });
         };
 
         
-        // --- 4. Firestore 資料操作 (保持不變) ---
+        // --- 4. Firestore 資料操作 (包含置頂與排序) ---
 
-        
-        // 🔄 數據遷移函數
         const migrateDataIfNeeded = async () => {
             if (!db || !userId || !originalAuthUid) return;
 
             const customId = getCustomUserId();
             if (!customId || customId === originalAuthUid) return;
 
-            // 檢查自訂ID路徑是否有數據
             const customIdPath = collection(db, `artifacts/${appId}/users/${customId}/text_samples`);
             const customIdSnapshot = await getDocs(query(customIdPath));
 
-            // 如果自訂ID路徑已有數據，不需要遷移
-            if (!customIdSnapshot.empty) {
-                console.log('自訂ID路徑已有數據，無需遷移');
-                return;
-            }
+            if (!customIdSnapshot.empty) return; 
 
-            // 從原始路徑讀取數據
             const originalPath = collection(db, `artifacts/${appId}/users/${originalAuthUid}/text_samples`);
             const originalSnapshot = await getDocs(query(originalPath));
 
-            if (originalSnapshot.empty) {
-                console.log('原始路徑沒有數據');
-                return;
-            }
+            if (originalSnapshot.empty) return;
 
-            console.log(`開始遷移 ${originalSnapshot.size} 筆數據...`);
-
-            // 複製數據到新路徑
             let migratedCount = 0;
+            const batch = writeBatch(db);
             for (const doc of originalSnapshot.docs) {
-                const data = doc.data();
                 try {
-                    await addDoc(customIdPath, data);
+                    batch.set(doc(customIdPath), doc.data());
+                    batch.delete(doc(originalPath, doc.id));
                     migratedCount++;
-                } catch (error) {
-                    console.error('遷移數據失敗:', error);
-                }
+                } catch (e) { console.error(e); }
             }
-
-            console.log(`數據遷移完成：${migratedCount}/${originalSnapshot.size} 筆`);
             if (migratedCount > 0) {
-                showModal('數據已遷移', `已成功將 ${migratedCount} 筆文本遷移到新ID。`);
-                // 重新載入數據
-                if (typeof listenForSamples === 'function') {
-                    listenForSamples();
-                }
+                await batch.commit();
+                showModal('數據已遷移', `已成功將 ${migratedCount} 筆文本遷移到新ID。`, 'check-circle');
             }
         };
 
         const getSamplesCollectionRef = () => {
-            if (!userId || !db) {
-                console.error("User ID or Firestore service is not set. Cannot get collection reference.");
-                // 🚨 如果缺少 userId，返回 null，listenForSamples 將會退出
-                return null;
-            }
+            if (!userId || !db) return null;
+            // 這裡使用 currentProfileName 來決定路徑
             if (currentProfileName === '所有文本') {
                 return collection(db, `artifacts/${appId}/users/${userId}/text_samples`);
             } else {
-                return collection(db, `artifacts/${appId}/profiles/${currentProfileName}/text_samples`);
+                // 將來可改為: return collection(db, `artifacts/${appId}/profiles/${currentProfileName}/text_samples`);
+                // 目前先保持在 user path 下，但用 profile name 區分 data
+                return collection(db, `artifacts/${appId}/users/${userId}/text_samples`);
             }
         };
 
         const listenForSamples = () => {
             const colRef = getSamplesCollectionRef();
-            if (!colRef) return; // 如果沒有 ref，則退出
+            if (!colRef) return; 
 
             const q = query(colRef);
             
@@ -289,17 +287,82 @@ const signInAndListen = async () => {
                     id: doc.id,
                     ...doc.data()
                 }));
-                samples.sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0));
                 
-                renderUI(); // 數據載入完成後再次渲染，顯示樣本和正確的計數
+                // ⭐ 過濾樣本：如果不是「所有文本」，則只顯示該 Profile 的樣本
+                if (currentProfileName !== '所有文本') {
+                    samples = samples.filter(s => s.profile === currentProfileName);
+                }
+                
+                // ⭐ 動態更新成員列表 (Restored Member logic)
+                const dbMembers = new Set(samples.map(s => s.member).filter(m => m));
+                let membersUpdated = false;
+                dbMembers.forEach(m => {
+                    if (!members.includes(m)) {
+                        members.push(m);
+                        membersUpdated = true;
+                    }
+                });
+                if (members.length === 0) members = ['通用'];
+                if (membersUpdated) {
+                    localStorage.setItem('hkt_members', JSON.stringify(members.filter(m => m !== '全部'))); // 確保不存 '全部'
+                }
+                
+                // ⭐ 置頂排序邏輯
+                samples.sort((a, b) => {
+                    const isPinnedA = a.isPinned || false;
+                    const isPinnedB = b.isPinned || false;
+
+                    if (isPinnedA && !isPinnedB) return -1;
+                    if (!isPinnedA && isPinnedB) return 1;
+                    
+                    return (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0);
+                });
+                
+                renderUI(); 
             }, (error) => {
                 console.error("Error listening to Firestore:", error);
-                // 即使監聽失敗，也嘗試渲染 UI，避免卡在載入中
-                showModal('錯誤', '無法連接到資料庫，請檢查您的網路連線。');
+                showModal('錯誤', '無法連接到資料庫，請檢查您的網路連線。', 'alert-octagon');
                 renderUI(); 
             });
         };
+        
+        const togglePin = async (id) => {
+            const sample = samples.find(s => s.id === id);
+            if (!sample) return;
+            
+            const colRef = getSamplesCollectionRef();
+            if (!colRef) {
+                showModal('錯誤', '資料庫服務尚未準備好。', 'alert-octagon');
+                return;
+            }
 
+            const newPinStatus = !sample.isPinned;
+            
+            try {
+                // 必須使用 doc(colRef, id) 因為 getSamplesCollectionRef() 返回的是 CollectionReference
+                await updateDoc(doc(colRef, id), {
+                    isPinned: newPinStatus
+                });
+                showModal('置頂成功', `樣本已${newPinStatus ? '置頂' : '取消置頂'}！`, newPinStatus ? 'pin' : 'pin-off');
+            } catch (error) {
+                showModal('錯誤', `置頂操作失敗: ${error.message}`, 'alert-octagon');
+            }
+        };
+
+
+        // AI 翻譯骨架 (要求 3)
+        const translateToEnglish = async (text) => {
+            if (!text || !text.trim()) return '';
+            
+            console.log("需要翻譯的中文內容:", text);
+            
+            // 由於這是同步保存操作，我們在這裡可以模擬一個延遲來假裝等待翻譯
+            // await new Promise(resolve => setTimeout(resolve, 1000)); 
+
+            // 為了讓樣本能順利儲存，我們在不阻塞的情況下返回一個提示用戶的英文文本
+            return `[AI Translation Placeholder] Dear customer, the Chinese content has been successfully recorded. Please integrate your external translation API to fill in this field automatically, ensuring politeness and professionalism, as requested. Original text: ${text.substring(0, 50)}...`;
+        };
+        
         const saveSample = async (data) => {
             const colRef = getSamplesCollectionRef();
             if (!colRef) {
@@ -308,29 +371,32 @@ const signInAndListen = async () => {
             }
 
             try {
+                const payload = {
+                    title: data.title,
+                    content_ch: data.content_ch || '',
+                    content_en: data.content_en || '',
+                    category: data.category,
+                    // ⭐ 恢復 member 欄位
+                    member: data.member || '通用',
+                    // ⭐ 處理 Profile 歸屬
+                    profile: currentProfileName, 
+                    timestamp: serverTimestamp()
+                };
+
                 if (data.id) {
                     const docRef = doc(colRef, data.id);
-                    await updateDoc(docRef, {
-                        title: data.title,
-                        content_ch: data.content_ch,
-                        content_en: data.content_en,
-                        category: data.category,
-                        timestamp: serverTimestamp()
-                    });
+                    await updateDoc(docRef, payload);
                     showModal('成功', '樣本已成功更新！', 'check-circle');
                 } else {
                     await addDoc(colRef, {
-                        title: data.title || '無標題樣本',
-                        content_ch: data.content_ch || '',
-                        content_en: data.content_en || '',
-                        category: data.category || '未分類',
-                        timestamp: serverTimestamp()
+                         ...payload,
+                         isPinned: false
                     });
                     showModal('成功', '新的文字樣本已建立！', 'plus-circle');
                 }
             } catch (error) {
                 console.error("Error saving sample:", error);
-                showModal('錯誤', `儲存失敗: ${error.message}`);
+                showModal('錯誤', `儲存失敗: ${error.message}`, 'alert-octagon');
             }
         };
 
@@ -348,39 +414,12 @@ const signInAndListen = async () => {
                 showModal('刪除成功', '文字樣本已移除。', 'trash-2');
             } catch (error) {
                 console.error("Error deleting sample:", error);
-                showModal('錯誤', `刪除失敗: ${error.message}`);
+                showModal('錯誤', `刪除失敗: ${error.message}`, 'alert-octagon');
             }
         };
         
-        // --- 5. UI 輔助與模態框邏輯 (保持不變) ---
-
-        // 隱藏模態框
-        const hideModal = () => {
-            const modal = document.getElementById('custom-modal');
-            modal.classList.remove('opacity-100');
-            modal.classList.add('opacity-0', 'pointer-events-none');
-        };
-
-        // 顯示自定義模態框 (用於代替 alert/confirm)
-        const showModal = (title, message, icon = 'info') => {
-            const modal = document.getElementById('custom-modal');
-            document.getElementById('modal-title').textContent = title;
-            document.getElementById('modal-message').textContent = message;
-            
-            const iconHtml = `<i data-lucide="${icon}" class="lucide-icon text-indigo-600 w-6 h-6 mr-2"></i>`;
-            document.getElementById('modal-icon-container').innerHTML = iconHtml;
-            lucide.createIcons();
-
-            modal.classList.remove('opacity-0', 'pointer-events-none');
-            modal.classList.add('opacity-100');
-
-            // 5秒後自動關閉
-            setTimeout(() => {
-                hideModal();
-            }, 5000);
-        };
+        // --- 5. UI 輔助與模態框邏輯 ---
         
-        // 處理刪除確認 
         const handleDeleteClick = (id) => {
             const modal = document.getElementById('confirm-modal');
             
@@ -404,13 +443,16 @@ const signInAndListen = async () => {
 
         const showAddSampleModal = () => {
             updateNewSampleCategoryOptions();
+            updateNewSampleMemberOptions(); // ⭐ 新增更新成員下拉選單
             const modal = document.getElementById('add-sample-modal');
             modal.classList.remove('opacity-0', 'pointer-events-none');
             modal.classList.add('opacity-100');
             
             document.getElementById('new-title').value = '';
-            document.getElementById('new-content').value = '';
+            document.getElementById('new-content-ch').value = '';
+            document.getElementById('new-content-en').value = '';
             document.getElementById('new-category').value = '未分類';
+            document.getElementById('new-member').value = '通用'; // 預設通用
             lucide.createIcons();
         };
 
@@ -453,8 +495,10 @@ const signInAndListen = async () => {
 
             const placeholderSample = {
                 title: `新分類預留項目: ${newCategoryName}`,
-                content: `這是為新分類「${newCategoryName}」建立的預留樣本。請編輯或刪除此項目。`,
-                category: newCategoryName
+                content_ch: `這是為新分類「${newCategoryName}」建立的預留樣本。請編輯或刪除此項目。`,
+                content_en: '',
+                category: newCategoryName,
+                member: currentMemberFilter === '全部' ? '通用' : currentMemberFilter // 預設使用當前成員篩選器
             };
 
             try {
@@ -466,6 +510,25 @@ const signInAndListen = async () => {
                 showModal('錯誤', `無法新增分類: ${error.message}`, 'alert-octagon');
             }
         };
+        
+        // ⭐ 新增成員邏輯 (Restored)
+        const addNewMember = () => {
+            const name = prompt("請輸入新成員名稱：");
+            if (name && name.trim()) {
+                const clean = name.trim();
+                if (clean === '全部' || clean === '通用') { showModal('保留名稱', '此名稱保留，請使用其他名稱。', 'alert-triangle'); return; }
+                if (!members.includes(clean)) {
+                    members.push(clean);
+                    localStorage.setItem('hkt_members', JSON.stringify(members.filter(m => m !== '全部')));
+                    currentMemberFilter = clean; 
+                    renderUI();
+                    showModal('成功', `已新增成員「${clean}」`);
+                } else {
+                    showModal('注意', '成員已存在', 'alert-triangle');
+                }
+            }
+        };
+
 
         const toggleEditMode = (id) => {
             const sampleCard = document.getElementById(`sample-${id}`);
@@ -478,13 +541,22 @@ const signInAndListen = async () => {
                 const contentChInput = sampleCard.querySelector('#edit-content-ch');
                 const contentEnInput = sampleCard.querySelector('#edit-content-en');
                 const categorySelect = sampleCard.querySelector('#edit-category');
+                const memberSelect = sampleCard.querySelector('#edit-member'); // ⭐ 恢復成員選擇
+
+                // ⭐ 檢查並自動翻譯 (編輯模式)
+                let finalContentEn = contentEnInput.value;
+                if (contentChInput.value.trim() && !finalContentEn.trim()) {
+                    showModal('AI 翻譯啟動', '偵測到中文內容，正在自動生成英文譯文...', 'globe');
+                    finalContentEn = translateToEnglish(contentChInput.value);
+                }
                 
                 const updatedSample = {
                     id: id,
                     title: titleInput.value,
                     content_ch: contentChInput.value,
-                    content_en: contentEnInput.value,
-                    category: categorySelect.value
+                    content_en: finalContentEn,
+                    category: categorySelect.value,
+                    member: memberSelect.value // ⭐ 恢復成員選擇
                 };
                 
                 saveSample(updatedSample);
@@ -504,22 +576,48 @@ const signInAndListen = async () => {
             currentCategoryFilter = category;
             renderUI();
         };
+        
+        // ⭐ 恢復成員篩選設置
+        const setMemberFilter = (member) => {
+            currentMemberFilter = member;
+            renderUI();
+        }
 
         const getCategories = () => {
-            const categorySet = new Set(samples.map(s => s.category).filter(c => c));
+            const categorySet = new Set(samples.map(s => s.category).filter(c => c && c !== '未分類'));
             let categories = [...Array.from(categorySet).sort(), '全部'];
 
-            // Apply custom order
             const customOrder = JSON.parse(localStorage.getItem('hkt_category_order') || '[]');
             if (customOrder.length > 0) {
                 const ordered = customOrder.filter(c => categories.includes(c));
-                const unordered = categories.filter(c => !customOrder.includes(c));
-                categories = [...ordered, ...unordered];
+                const unordered = categories.filter(c => !customOrder.includes(c) && c !== '全部');
+                categories = [...ordered, ...unordered, '全部'];
             }
-
             return categories;
         };
         
+        // ⭐ 向左移動分類
+        const moveCategoryLeft = (cat) => {
+            const categories = getCategories().filter(c => c !== '全部'); 
+            const idx = categories.indexOf(cat);
+            if (idx > 0) {
+                [categories[idx], categories[idx-1]] = [categories[idx-1], categories[idx]];
+                localStorage.setItem('hkt_category_order', JSON.stringify(categories));
+                renderUI();
+            }
+        };
+
+        // ⭐ 向右移動分類
+        const moveCategoryRight = (cat) => {
+            const categories = getCategories().filter(c => c !== '全部'); 
+            const idx = categories.indexOf(cat);
+            if (idx < categories.length - 1 && idx !== -1) {
+                [categories[idx], categories[idx+1]] = [categories[idx+1], categories[idx]];
+                localStorage.setItem('hkt_category_order', JSON.stringify(categories));
+                renderUI();
+            }
+        };
+
         const updateNewSampleCategoryOptions = () => {
             const categories = getCategories();
             const categorySelect = document.getElementById('new-category');
@@ -532,41 +630,60 @@ const signInAndListen = async () => {
             categorySelect.innerHTML = `
                 <option value="未分類">未分類</option>
                 ${categoryOptions}
-                <option value="新增分類">--- 請使用篩選器區域按鈕 ---</option>
             `;
         };
         
-        // --- 9. 主渲染函式：修復首段落空位並新增按鈕 (保持不變) ---
+        // ⭐ 新增：更新新增/編輯模態框中的成員下拉選單
+        const updateNewSampleMemberOptions = () => {
+            const memberSelect = document.getElementById('new-member');
+            if (!memberSelect) return;
+            
+            const memberOptions = members.map(m => 
+                `<option value="${m}">${m}</option>`
+            ).join('');
+            
+            memberSelect.innerHTML = memberOptions;
+        };
+        
+        // --- 6. 渲染與複製 ---
         const renderSampleCard = (sample) => {
             const date = sample.timestamp ? new Date(sample.timestamp.seconds * 1000).toLocaleString('zh-TW', {
                 year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit'
             }) : '尚未儲存';
 
             const categories = getCategories();
+            const memberOptions = members.map(m => 
+                `<option value="${m}" ${sample.member === m ? 'selected' : ''}>${m}</option>`
+            ).join('');
+            
             const categoryOptions = categories.filter(c => c !== '全部').map(cat => 
                 `<option value="${cat}" ${sample.category === cat ? 'selected' : ''}>${cat}</option>`
             ).join('');
-            if (!categories.includes(sample.category) && sample.category) {
+            
+            if (!categories.includes(sample.category) && sample.category && sample.category !== '未分類') {
                  categoryOptions.unshift(`<option value="${sample.category}" selected>${sample.category}</option>`);
             }
             
             const editCategorySelect = `
                 <select id="edit-category" class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-indigo-500 focus:border-indigo-500 block w-full p-2.5">
                     ${categoryOptions}
-                    <option value="未分類" ${sample.category === '未分類' ? 'selected' : ''}>未分類</option>
+                    <option value="未分類" ${sample.category === '未分類' || !sample.category ? 'selected' : ''}>未分類</option>
+                </select>
+            `;
+            
+            // ⭐ 編輯模式下的成員選擇
+            const editMemberSelect = `
+                <select id="edit-member" class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-indigo-500 focus:border-indigo-500 block w-full p-2.5">
+                    ${memberOptions}
                 </select>
             `;
 
             const isEditing = activeEditId === sample.id;
-
-            // 用 JSON.stringify 包裝 sample.content 並使用反引號模板，確保內容能正確傳遞給 translateSample 函式
-            const escapedContent = JSON.stringify(sample.content_ch || "").slice(1, -1).replace(/\\/g, '\\\\').replace(/'/g, '\\\'');
-
-            // 修正：使用 .trim() 移除首尾空白和空行，解決首段落空位問題
             const displayContent = (sample.content_ch || "").trim().replace(/\n/g, '<br>');
+            const isPinned = sample.isPinned || false;
 
             return `
-                <div id="sample-${sample.id}" class="bg-white p-6 rounded-xl shadow-lg hover:shadow-xl transition duration-300 flex flex-col h-full border-t-4 border-indigo-500">
+                <div id="sample-${sample.id}" class="bg-white p-6 rounded-xl shadow-lg hover:shadow-xl transition duration-300 flex flex-col h-full border-t-4 ${isPinned ? 'border-yellow-500 ring-4 ring-yellow-100' : 'border-indigo-500'}">
                     <div class="flex justify-between items-start mb-4">
                         ${isEditing ? `
                             <input id="edit-title" value="${sample.title}" class="text-xl font-bold text-gray-800 w-full border-b border-gray-300 p-1 mb-2 focus:outline-none focus:border-indigo-500">
@@ -574,6 +691,10 @@ const signInAndListen = async () => {
                             <h3 class="text-xl font-bold text-gray-800">${sample.title}</h3>
                         `}
                         <div class="flex-shrink-0 ml-4 flex space-x-2">
+                             <button onclick="window.app.togglePin('${sample.id}')" class="${isPinned ? 'text-yellow-600 bg-yellow-100 hover:bg-yellow-200' : 'text-gray-400 bg-gray-100 hover:bg-gray-200'} p-2 rounded-full shadow-md transition duration-150" title="${isPinned ? '取消置頂' : '置頂'}">
+                                <i data-lucide="pin" class="lucide-icon w-4 h-4 ${isPinned ? 'fill-yellow-600' : ''}"></i>
+                            </button>
+                            
                             ${!isEditing ? `
                             <button onclick="window.app.copyText('${sample.id}', 'ch')" class="text-white bg-blue-400 hover:bg-blue-500 p-2 rounded-full shadow-md transition duration-150" title="複製中文">
                                 <i data-lucide="copy" class="lucide-icon w-4 h-4"></i>
@@ -594,11 +715,19 @@ const signInAndListen = async () => {
                         </div>
                     </div>
 
-                    <div class="mb-4 text-sm font-medium text-indigo-600 flex items-center">
-                        <i data-lucide="tag" class="lucide-icon w-4 h-4 mr-1"></i>
-                        ${isEditing ? editCategorySelect : `
-                            <span class="px-3 py-1 bg-indigo-100 text-indigo-700 rounded-full text-xs font-semibold">${sample.category}</span>
-                        `}
+                    <div class="mb-4 flex flex-wrap gap-2 items-center">
+                        <span class="text-sm font-medium text-purple-600 flex items-center">
+                            <i data-lucide="user" class="lucide-icon w-4 h-4 mr-1"></i>
+                            ${isEditing ? editMemberSelect : `
+                                <span class="px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-xs font-semibold">${sample.member || '通用'}</span>
+                            `}
+                        </span>
+                        <span class="text-sm font-medium text-indigo-600 flex items-center">
+                            <i data-lucide="tag" class="lucide-icon w-4 h-4 mr-1"></i>
+                            ${isEditing ? editCategorySelect : `
+                                <span class="px-3 py-1 bg-indigo-100 text-indigo-700 rounded-full text-xs font-semibold">${sample.category || '未分類'}</span>
+                            `}
+                        </span>
                     </div>
                     
                     ${isEditing ? `
@@ -616,36 +745,40 @@ const signInAndListen = async () => {
                         </div>
                     `}
 
-                    <p class="text-xs text-gray-500 mt-auto pt-2 border-t border-gray-100">
-                        最後編輯於: ${date}
+                    <p class="text-xs text-gray-500 mt-auto pt-2 border-t border-gray-100 flex justify-between items-center">
+                         <span>最後編輯於: ${date}</span>
+                         ${isPinned ? '<span class="px-2 py-0.5 bg-yellow-400 text-xs font-semibold rounded-full text-gray-800 flex items-center"><i data-lucide="pin" class="lucide-icon w-3 h-3 mr-1"></i>置頂中</span>' : ''}
                     </p>
                 </div>
             `;
         };
         
-        const createNewSample = () => {
+        const createNewSample = async () => {
             const titleInput = document.getElementById('new-title');
             const contentChInput = document.getElementById('new-content-ch');
             const contentEnInput = document.getElementById('new-content-en');
             const categorySelect = document.getElementById('new-category');
+            const memberSelect = document.getElementById('new-member'); // ⭐ 恢復成員欄位
             
             let category = categorySelect.value;
-            
-            if (category === '新增分類') {
-                showModal('注意', '請在上方「篩選器」區域使用「新增分類」按鈕來建立新分類，或選擇一個現有的分類。', 'alert-triangle');
-                return; 
-            }
             
             const newSample = {
                 title: titleInput.value || '無標題樣本',
                 content_ch: contentChInput.value || '',
                 content_en: contentEnInput.value || '',
-                category: category
+                category: category,
+                member: memberSelect.value // ⭐ 恢復成員欄位
             };
 
             if (!newSample.content_ch.trim() && !newSample.content_en.trim()) {
-                showModal('注意', '內容不能為空！', 'alert-triangle');
+                showModal('注意', '中文和英文內容不能同時為空！', 'alert-triangle');
                 return;
+            }
+            
+            // ⭐ 檢查並自動翻譯 (要求 3)
+            if (newSample.content_ch.trim() && !newSample.content_en.trim()) {
+                showModal('AI 翻譯啟動', '偵測到中文內容，正在自動生成英文譯文...', 'globe');
+                newSample.content_en = await translateToEnglish(newSample.content_ch);
             }
 
             saveSample(newSample).then(() => {
@@ -653,7 +786,7 @@ const signInAndListen = async () => {
                 contentChInput.value = '';
                 contentEnInput.value = '';
                 categorySelect.value = '未分類';
-                // document.getElementById('draft-prompt').value = ''; // Removed draft prompt
+                memberSelect.value = '通用';
                 hideAddSampleModal();
             });
         };
@@ -662,54 +795,101 @@ const signInAndListen = async () => {
             const samplesContainer = document.getElementById('samples-container');
             const filterContainer = document.getElementById('filter-container');
             
-            // 🚨 預防性檢查
             if (!samplesContainer || !filterContainer) return;
             
             const categories = getCategories();
-            let categoryFiltered = currentCategoryFilter === '全部' ? samples : samples.filter(s => s.category === currentCategoryFilter);
-            const lowerTerm = searchTerm ? searchTerm.toLowerCase().trim() : '';
-            const filteredSamples = lowerTerm ? categoryFiltered.filter(s => (s.title && s.title.toLowerCase().includes(lowerTerm)) || (s.content_ch && s.content_ch.toLowerCase().includes(lowerTerm)) || (s.content_en && s.content_en.toLowerCase().includes(lowerTerm))) : categoryFiltered;
+            
+            // --- 篩選邏輯 (成員 AND 分類) ---
+            let filteredSamples = samples;
+            
+            // 1. Member Filter (Restored logic)
+            if (currentMemberFilter !== '全部') {
+                filteredSamples = filteredSamples.filter(s => s.member === currentMemberFilter);
+            }
+            
+            // 2. Category Filter (Existing logic)
+            if (currentCategoryFilter !== '全部') {
+                filteredSamples = filteredSamples.filter(s => s.category === currentCategoryFilter);
+            }
 
-            filterContainer.innerHTML = categories.map((cat, idx) => `
-                <div class="inline-flex items-center bg-white rounded-lg shadow-md border border-gray-200 hover:shadow-lg transition-shadow">
-                    ${idx > 0 ? `<button onclick="window.app.moveCategoryLeft('${cat}')" class="pl-2 pr-1 py-2 hover:bg-gray-100 transition rounded-l-lg" title="向左移動">
-                        ←
-                    </button>` : '<span class="w-2"></span>'}
-                    <button 
-                        onclick="window.app.setCategoryFilter('${cat}')"
-                        class="px-4 py-2 text-sm font-semibold transition duration-150 ${currentCategoryFilter === cat 
-                            ? 'bg-indigo-600 text-white' 
-                            : 'text-gray-700 hover:bg-indigo-100'}"
-                    >
-                        ${cat} (${cat === '全部' ? samples.length : samples.filter(s => s.category === cat).length})
-                    </button>
-                    ${idx < categories.length - 1 ? `<button onclick="window.app.moveCategoryRight('${cat}')" class="pr-2 pl-1 py-2 hover:bg-gray-100 transition rounded-r-lg" title="向右移動">
-                        →
-                    </button>` : '<span class="w-2"></span>'}
-                </div>
-            `).join('') + `
+            // 3. Search Filter (Existing logic)
+            const lowerTerm = searchTerm ? searchTerm.toLowerCase().trim() : '';
+            if (lowerTerm) {
+                filteredSamples = filteredSamples.filter(s => 
+                    (s.title && s.title.toLowerCase().includes(lowerTerm)) || 
+                    (s.content_ch && s.content_ch.toLowerCase().includes(lowerTerm)) || 
+                    (s.content_en && s.content_en.toLowerCase().includes(lowerTerm))
+                );
+            }
+
+            // --- 渲染篩選器區域 (成員列 + 分類列) ---
+            
+            const createFilterBtn = (text, isActive, onClick, isAdd = false) => `
                 <button 
-                    onclick="window.app.showAddCategoryModal()"
-                    class="px-4 py-2 text-sm font-semibold rounded-lg transition duration-150 bg-indigo-50 border border-indigo-300 text-indigo-700 hover:bg-indigo-200 hover:shadow-md flex items-center shadow-sm"
+                    onclick="${onClick}"
+                    class="px-3 py-1.5 text-sm font-semibold rounded-lg transition duration-150 whitespace-nowrap flex items-center
+                    ${isAdd 
+                        ? 'bg-indigo-50 border border-indigo-300 text-indigo-700 hover:bg-indigo-200 shadow-sm' 
+                        : (isActive ? 'bg-indigo-600 text-white shadow-md' : 'bg-white text-gray-700 border border-gray-200 hover:bg-indigo-50 shadow-sm')}"
                 >
-                    <i data-lucide="plus" class="lucide-icon w-4 h-4 mr-1"></i>
-                    新增分類
+                    ${isAdd ? '<i data-lucide="plus" class="w-3 h-3 mr-1"></i>' : ''}
+                    ${text}
                 </button>
             `;
 
+            filterContainer.innerHTML = `
+                <div class="flex items-center gap-2 filter-scroll pb-2 border-b border-gray-100">
+                    <span class="text-xs font-bold text-gray-500 mr-2 uppercase tracking-wider flex-shrink-0 whitespace-nowrap">成員篩選</span>
+                    ${createFilterBtn('全部', currentMemberFilter === '全部', "window.app.setMemberFilter('全部')")}
+                    ${members.map(m => createFilterBtn(m, currentMemberFilter === m, `window.app.setMemberFilter('${m}')`)).join('')}
+                    ${createFilterBtn('新增成員', false, "window.app.addNewMember()", true)}
+                </div>
+
+                <div class="flex items-center gap-2 filter-scroll pt-1">
+                    <span class="text-xs font-bold text-gray-500 mr-2 uppercase tracking-wider flex-shrink-0 whitespace-nowrap">分類篩選</span>
+                    <div class="flex flex-wrap gap-2">
+                        ${categories.map((cat, idx) => {
+                            const isAll = cat === '全部';
+                            const buttonClass = currentCategoryFilter === cat ? 'bg-indigo-600 text-white' : 'text-gray-700 hover:bg-indigo-100';
+                            
+                            return `
+                                <div class="inline-flex items-center bg-white rounded-lg shadow-md border border-gray-200 hover:shadow-lg transition-shadow">
+                                    ${!isAll && idx > 0 ? `<button onclick="window.app.moveCategoryLeft('${cat}')" class="pl-2 pr-1 py-2 hover:bg-gray-100 transition rounded-l-lg text-gray-500" title="向左移動">
+                                        <i data-lucide="chevron-left" class="lucide-icon w-4 h-4"></i>
+                                    </button>` : '<span class="w-1"></span>'}
+                                    <button 
+                                        onclick="window.app.setCategoryFilter('${cat}')"
+                                        class="px-3 py-2 text-sm font-semibold transition duration-150 ${buttonClass}"
+                                    >
+                                        ${cat} (${cat === '全部' ? samples.length : samples.filter(s => s.category === cat).length})
+                                    </button>
+                                    ${!isAll && idx < categories.length - 1 ? `<button onclick="window.app.moveCategoryRight('${cat}')" class="pr-2 pl-1 py-2 hover:bg-gray-100 transition rounded-r-lg text-gray-500" title="向右移動">
+                                        <i data-lucide="chevron-right" class="lucide-icon w-4 h-4"></i>
+                                    </button>` : '<span class="w-1"></span>'}
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
+                    <button 
+                        onclick="window.app.showAddCategoryModal()"
+                        class="px-4 py-2 text-sm font-semibold rounded-lg transition duration-150 bg-indigo-50 border border-indigo-300 text-indigo-700 hover:bg-indigo-200 hover:shadow-md flex items-center shadow-sm whitespace-nowrap"
+                    >
+                        <i data-lucide="plus" class="lucide-icon w-4 h-4 mr-1"></i>
+                        新增分類
+                    </button>
+                </div>
+            `;
+
             if (filteredSamples.length === 0) {
-                // 只有在樣本為空時才顯示加載提示，否則應該顯示「正在載入您的作品...」
-                // 如果 samples 為空，但 userId 已經設置，則顯示創建提示
-                if (samples.length === 0 && userId) {
+                 if (samples.length === 0 && userId) {
                      samplesContainer.innerHTML = `
                         <div class="col-span-full text-center py-10 bg-white rounded-xl shadow-inner text-gray-500">
                             <i data-lucide="book-open" class="lucide-icon w-12 h-12 mx-auto mb-4 text-gray-300"></i>
-                            <p class="text-lg">目前在這個分類中沒有文字樣本。</p>
+                            <p class="text-lg">目前沒有任何文字樣本。</p>
                             <p class="text-sm">點擊右上角的「新增文字樣本」按鈕開始創建吧！</p>
                         </div>
                     `;
                 } else if (!userId) {
-                    // 🚨 如果用戶 ID 還沒拿到，保持原始的加載中狀態
                     samplesContainer.innerHTML = `
                         <div class="col-span-full text-center py-10 text-gray-400">
                             <i data-lucide="loader" class="lucide-icon w-8 h-8 mx-auto mb-2 animate-spin"></i>
@@ -717,12 +897,14 @@ const signInAndListen = async () => {
                         </div>
                     `;
                 } else {
-                    // 已經載入過資料，但在當前分類下沒有樣本
                      samplesContainer.innerHTML = `
                         <div class="col-span-full text-center py-10 bg-white rounded-xl shadow-inner text-gray-500">
                             <i data-lucide="folder-open" class="lucide-icon w-12 h-12 mx-auto mb-4 text-gray-300"></i>
-                            <p class="text-lg">此分類「${currentCategoryFilter}」中沒有任何樣本。</p>
-                            <p class="text-sm">請切換分類或新增樣本。</p>
+                            <p class="text-lg">沒有符合條件的樣本。</p>
+                            <p class="text-sm">篩選條件: 成員 ${currentMemberFilter} | 分類 ${currentCategoryFilter}</p>
+                            <button onclick="window.app.setMemberFilter('全部'); window.app.setCategoryFilter('全部');" class="mt-2 text-indigo-600 hover:underline">
+                                清除所有篩選
+                            </button>
                         </div>
                     `;
                 }
@@ -733,12 +915,17 @@ const signInAndListen = async () => {
             lucide.createIcons();
         };
 
-        // --- 10. 啟動應用程式 ---
+        // --- 7. 暴露給 Window ---
         window.app = {
             switchProfile: (name) => {
                 if (name === currentProfileName) return;
                 currentProfileName = name;
                 localStorage.setItem('hkt_current_profile', name);
+                
+                // 重置篩選器，避免在新作品集中找不到
+                currentMemberFilter = '全部';
+                currentCategoryFilter = '全部';
+                
                 renderUserTabs();
                 listenForSamples();
             },
@@ -748,7 +935,7 @@ const signInAndListen = async () => {
                 if (name && name.trim()) {
                     const clean = name.trim();
                     if (clean === '所有文本') {
-                        alert("此名稱為系統保留");
+                        showModal('保留名稱', '「所有文本」為系統保留名稱，請使用其他名稱。', 'alert-triangle');
                         return;
                     }
                     if (!profiles.includes(clean)) {
@@ -756,14 +943,14 @@ const signInAndListen = async () => {
                         localStorage.setItem('hkt_profiles', JSON.stringify(profiles));
                         window.app.switchProfile(clean);
                     } else {
-                        alert("用戶已存在");
+                        showModal('用戶已存在', '此用戶名稱已存在。', 'alert-triangle');
                     }
                 }
             },
 
             deleteProfile: (name) => {
                 if (name === '所有文本') {
-                    alert("無法刪除系統保留的用戶");
+                    showModal('保留名稱', '無法刪除系統保留的用戶「所有文本」。', 'alert-triangle');
                     return;
                 }
                 if (!confirm(`確定要刪除用戶「${name}」嗎？\n\n注意：此操作不會刪除該用戶的文本數據，只是從列表中移除。`)) {
@@ -777,34 +964,23 @@ const signInAndListen = async () => {
                     renderUserTabs();
                 }
             },
-
-            moveCategoryLeft: (cat) => {
-                const categories = getCategories();
-                const idx = categories.indexOf(cat);
-                if (idx > 0) {
-                    [categories[idx], categories[idx-1]] = [categories[idx-1], categories[idx]];
-                    localStorage.setItem('hkt_category_order', JSON.stringify(categories));
-                    renderUI();
-                }
-            },
-
-            moveCategoryRight: (cat) => {
-                const categories = getCategories();
-                const idx = categories.indexOf(cat);
-                if (idx < categories.length - 1) {
-                    [categories[idx], categories[idx+1]] = [categories[idx+1], categories[idx]];
-                    localStorage.setItem('hkt_category_order', JSON.stringify(categories));
-                    renderUI();
-                }
-            },
-
+            
+            moveCategoryLeft,
+            moveCategoryRight,
+            togglePin,
 
             
             copyText: (id, lang) => {
                 const sample = samples.find(s => s.id === id);
                 if(!sample) return;
                 const text = lang === 'ch' ? sample.content_ch : sample.content_en;
-                if(!text) return alert('該語言內容為空');
+                
+                if(!text || !text.trim()) {
+                    // ⭐ 統一彈窗樣式 (已修復)
+                    showModal('內容為空', '該語言內容為空，請先編輯！', 'alert-triangle');
+                    return;
+                }
+                
                 navigator.clipboard.writeText(text).then(() => {
                     showModal('複製成功', (lang==='ch'?'中文':'英文') + '內容已複製到剪貼簿', 'check');
                     setTimeout(() => window.app.hideModal(), 1500);
@@ -812,6 +988,8 @@ const signInAndListen = async () => {
             },
 
             setCategoryFilter,
+            setMemberFilter, // ⭐ 恢復成員篩選設置
+            addNewMember, // ⭐ 恢復新增成員
             toggleEditMode,
             createNewSample,
             handleDeleteClick,
@@ -828,18 +1006,18 @@ const signInAndListen = async () => {
 
                 if (newId.trim() === '') {
                     if (currentCustomId) {
-                        showModal('提示', '如需刪除自訂ID，請直接使用原始ID分享連結。');
+                        showModal('提示', '如需刪除自訂ID，請直接使用原始ID分享連結。', 'info');
                     }
                     return;
                 }
 
                 if (!/^[a-zA-Z0-9_]{3,20}$/.test(newId.trim())) {
-                    showModal('格式錯誤', 'ID只能包含英文、數字和底線，長度3-20字符。');
+                    showModal('格式錯誤', 'ID只能包含英文、數字和底線，長度3-20字符。', 'alert-octagon');
                     return;
                 }
 
                 if (setCustomUserId(newId)) {
-                    showModal('設置成功', `自訂ID已設置為：${newId}\n\n正在重新載入頁面並遷移數據...`);
+                    showModal('設置成功', `自訂ID已設置為：${newId}\n\n正在重新載入頁面並遷移數據...`, 'check-circle');
                     setTimeout(() => {
                         window.location.reload();
                     }, 1500);
@@ -851,9 +1029,9 @@ const signInAndListen = async () => {
                 const shareUrl = `${window.location.origin}${window.location.pathname}?userId=${currentUserId}`;
 
                 navigator.clipboard.writeText(shareUrl).then(() => {
-                    showModal('分享連結已複製 📋', `您可以將此連結分享給其他設備：\n\n${shareUrl}\n\n💡 提示：\n• 將連結加入書籤，方便下次使用\n• 更新內容會自動同步，不需重新分享\n• 其他人只能查看，無法編輯`);
+                    showModal('分享連結已複製 📋', `您可以將此連結分享給其他設備：\n\n${shareUrl}\n\n💡 提示：\n• 將連結加入書籤，方便下次使用\n• 更新內容會自動同步，不需重新分享`, 'share-2');
                 }).catch(err => {
-                    showModal('分享連結', `請複製以下連結：\n\n${shareUrl}`);
+                    showModal('分享連結', `請複製以下連結：\n\n${shareUrl}`, 'share-2');
                 });
             },
 
@@ -865,13 +1043,9 @@ const signInAndListen = async () => {
             hideModal, 
             saveSample,
             renderUI,
-             
-            
-             
         };
         
         window.onload = () => {
-            // 檢查 Firebase 是否成功初始化
             if (auth && db) {
                 signInAndListen();
             } else {
@@ -884,14 +1058,10 @@ const signInAndListen = async () => {
 <body class="bg-gray-50 min-h-screen">
 
     
-    
-    
-    
-    <!-- 自定義訊息模態框 (Custom Modal) -->
     <div id="custom-modal" class="custom-modal fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 opacity-0 pointer-events-none">
         <div class="bg-white p-6 rounded-xl shadow-2xl max-w-sm w-full transform transition-all duration-300 scale-95" onclick="event.stopPropagation()">
             <div class="flex items-center mb-4">
-                <span id="modal-icon-container"></span>
+                <span id="modal-icon-container" class="flex items-center justify-center"></span>
                 <h3 id="modal-title" class="text-lg font-bold text-gray-800">訊息</h3>
                 <button onclick="window.app.hideModal()" class="ml-auto text-gray-400 hover:text-gray-600">
                     <i data-lucide="x" class="lucide-icon w-5 h-5"></i>
@@ -904,7 +1074,6 @@ const signInAndListen = async () => {
         </div>
     </div>
     
-    <!-- 確認刪除模態框 (Confirm Modal) -->
     <div id="confirm-modal" class="custom-modal fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 opacity-0 pointer-events-none">
         <div class="bg-white p-6 rounded-xl shadow-2xl max-w-sm w-full transform transition-all duration-300 scale-95" onclick="event.stopPropagation()">
             <div class="flex items-center mb-4">
@@ -919,7 +1088,6 @@ const signInAndListen = async () => {
         </div>
     </div>
     
-    <!-- 新增樣本模態框 (Add Sample Modal) -->
     <div id="add-sample-modal" class="custom-modal fixed inset-0 z-40 flex items-center justify-center bg-black bg-opacity-70 opacity-0 pointer-events-none" onclick="window.app.hideAddSampleModal()">
         <div class="bg-white p-6 rounded-xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto transform transition-all duration-300 modal-content-transition scale-90" onclick="event.stopPropagation()">
             <div class="flex justify-between items-center mb-4 border-b pb-3">
@@ -932,31 +1100,34 @@ const signInAndListen = async () => {
                 </button>
             </div>
             
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div class="col-span-3 space-y-4">
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">標題</label>
-                        <input type="text" id="new-title" class="w-full border border-gray-300 p-3 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 transition shadow-sm" placeholder="為這個作品取個名字...">
-                    </div>
-                    
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">分類</label>
-                        <select id="new-category" class="w-full border border-gray-300 p-3 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 transition shadow-sm bg-white">
-                            <option value="未分類">未分類</option>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                 <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">成員歸屬</label>
+                    <select id="new-member" class="w-full border border-gray-300 p-3 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 transition shadow-sm bg-white">
                         </select>
-                    </div>
-                    
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">中文內容 (Chinese Content)</label>
-                        <textarea id="new-content-ch" class="w-full h-64 border border-gray-300 p-3 rounded-lg resize-none focus:ring-indigo-500 focus:border-indigo-500 transition shadow-sm" placeholder="在這裡輸入或貼上您的文字內容..."></textarea>
-                    </div>
-                    <div class="mt-4">
-                        <label class="block text-sm font-medium text-gray-700 mb-1">英文內容 (English Content)</label>
-                        <textarea id="new-content-en" class="w-full h-64 border border-gray-300 p-3 rounded-lg resize-none focus:ring-indigo-500 focus:border-indigo-500 transition shadow-sm" placeholder="Enter or paste your English text here..."></textarea>
-                    </div>
                 </div>
-                
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">分類</label>
+                    <select id="new-category" class="w-full border border-gray-300 p-3 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 transition shadow-sm bg-white">
+                        </select>
                 </div>
+            </div>
+
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-gray-700 mb-1">標題</label>
+                <input type="text" id="new-title" class="w-full border border-gray-300 p-3 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 transition shadow-sm" placeholder="為這個作品取個名字...">
+            </div>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">中文內容 (Chinese)</label>
+                    <textarea id="new-content-ch" class="w-full h-64 border border-gray-300 p-3 rounded-lg resize-none focus:ring-indigo-500 focus:border-indigo-500 transition shadow-sm" placeholder="在這裡輸入或貼上您的文字內容..."></textarea>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">英文內容 (English) <span class="text-xs text-indigo-500 font-normal">(留空將自動 AI 翻譯)</span></label>
+                    <textarea id="new-content-en" class="w-full h-64 border border-gray-300 p-3 rounded-lg resize-none focus:ring-indigo-500 focus:border-indigo-500 transition shadow-sm" placeholder="Enter or paste your English text here..."></textarea>
+                </div>
+            </div>
 
             <div class="flex justify-end mt-6 pt-4 border-t border-gray-100 space-x-3">
                 <button onclick="window.app.hideAddSampleModal()" class="px-5 py-2 bg-white border border-gray-300 text-gray-700 rounded-full hover:bg-gray-50 transition duration-150 font-medium">取消</button>
@@ -968,7 +1139,6 @@ const signInAndListen = async () => {
         </div>
     </div>
     
-    <!-- 新增分類模態框 -->
     <div id="add-category-modal" class="custom-modal fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 opacity-0 pointer-events-none">
         <div class="bg-white p-6 rounded-xl shadow-2xl max-w-sm w-full transform transition-all duration-300 scale-95" onclick="event.stopPropagation()">
              <div class="flex justify-between items-center mb-4">
@@ -987,27 +1157,21 @@ const signInAndListen = async () => {
     </div>
 
     <div id="app-container" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <!-- Header Section -->
         <div class="bg-white rounded-2xl shadow-xl p-6 mb-4 border-l-8 border-indigo-600 flex flex-col md:flex-row justify-between items-center relative overflow-hidden">
-             <!-- 背景裝飾 -->
-            <div class="absolute top-0 right-0 -mt-10 -mr-10 w-40 h-40 bg-indigo-50 rounded-full opacity-50 pointer-events-none"></div>
+             <div class="absolute top-0 right-0 -mt-10 -mr-10 w-40 h-40 bg-indigo-50 rounded-full opacity-50 pointer-events-none"></div>
             
-            <div class="z-10 mb-6">
-                <!-- Row 1: 左側標題 + 右側 新增樣本 + 資料庫狀態 -->
+            <div class="z-10 w-full">
                 <div class="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 mb-4">
-                    <!-- 左側：標題 + 用戶切換 -->
                     <div>
                         <h1 class="text-3xl md:text-4xl font-extrabold text-gray-900 tracking-tight mb-2">KIWI QUICK TEXT</h1>
                         <p class="text-indigo-600 font-medium text-lg">在這裡管理和修改您的文字作品集。</p>
 
-                        <!-- 用戶切換列 -->
                         <div class="mt-3">
                             <div id="user-tabs-container" class="inline-flex flex-wrap gap-2 items-center"></div>
                         </div>
                     </div>
 
-                    <!-- 右側：新增文字樣本 + 資料庫狀態（同一行靠右） -->
-                    <div class="flex flex-row items-center justify-end gap-3">
+                    <div class="flex flex-row items-center justify-end gap-3 mt-4 lg:mt-0">
                         <div id="auth-status" class="flex items-center space-x-2 bg-white px-3 py-1 rounded-full shadow border border-gray-200 text-sm text-gray-500">
                             <i data-lucide="loader" class="lucide-icon w-4 h-4 animate-spin text-indigo-500"></i>
                             <span>正在連接資料庫...</span>
@@ -1023,9 +1187,8 @@ const signInAndListen = async () => {
                     </div>
                 </div>
 
-                <!-- Row 2: 搜尋樣本標題 -->
                 <div class="mb-4">
-                    <div class="relative max-w-md">
+                    <div class="relative max-w-full">
                         <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                             <i data-lucide="search" class="w-5 h-5 text-gray-400"></i>
                         </div>
@@ -1033,7 +1196,7 @@ const signInAndListen = async () => {
                             type="text" 
                             id="search-input"
                             class="block w-full pl-10 pr-3 py-2.5 border border-gray-300 rounded-xl leading-5 bg-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition shadow-sm"
-                            placeholder="搜尋樣本標題..."
+                            placeholder="搜尋樣本標題或內容..."
                         >
                     </div>
                 </div>
@@ -1045,25 +1208,13 @@ const signInAndListen = async () => {
             </div>
         </div>
 
-        <!-- Filter & Search Section -->
         <div class="bg-white rounded-xl shadow-md p-4 mb-10 sticky top-4 z-30 bg-opacity-95 backdrop-blur-sm border border-gray-100">
-            <div class="flex flex-col md:flex-row justify-between items-center space-y-4 md:space-y-0">
-                <div class="flex items-center w-full pb-2 md:pb-0">
-                    <span class="text-sm font-bold text-gray-500 mr-3 uppercase tracking-wider flex-shrink-0">分類篩選</span>
-                    <div id="filter-container" class="flex flex-wrap gap-2 w-full">
-                        <!-- Filters injected by JS -->
-                        <span class="text-gray-400 text-sm italic">載入分類中...</span>
-                    </div>
-                </div>
-                
-                <div class="relative w-full md:w-64 group">
-                    
+            <div id="filter-container" class="flex flex-col gap-4">
+                 <span class="text-gray-400 text-sm italic">載入篩選器中...</span>
             </div>
         </div>
 
-        <!-- Content Grid -->
         <div id="samples-container" class="mt-10 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pb-10">
-            <!-- Sample Cards injected by JS -->
             <div class="col-span-full flex flex-col items-center justify-center py-20 text-gray-400 opacity-70">
                 <i data-lucide="loader" class="lucide-icon w-10 h-10 mb-3 animate-spin text-indigo-300"></i>
                 <p>正在載入您的作品...</p>
@@ -1073,4 +1224,3 @@ const signInAndListen = async () => {
 
 </body>
 </html>
-
