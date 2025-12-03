@@ -7,7 +7,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&family=Noto+Sans+TC:wght=100..900&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&family=Noto+Sans+TC:wght@100..900&display=swap');
         body {
             font-family: 'Noto Sans TC', 'Inter', sans-serif;
             background-color: #f7f7f9;
@@ -769,8 +769,6 @@
             
             if (!samplesContainer || !filterContainer) return;
             
-            const categories = getCategories();
-            
             // --- 篩選邏輯 (成員 AND 分類) ---
             let filteredSamples = samples;
             
@@ -796,10 +794,12 @@
 
             // --- 渲染篩選器區域 (成員列 + 分類列) ---
             
+            const categories = getCategories();
+            
             const createFilterBtn = (text, isActive, onClick, isAdd = false) => `
                 <button 
                     onclick="${onClick}"
-                    class="px-3 py-1.5 text-sm font-semibold rounded-lg transition duration-150 whitespace-nowrap flex items-center
+                    class="px-3 py-1.5 text-sm font-semibold rounded-lg transition duration-150 whitespace-nowrap flex items-center flex-shrink-0
                     ${isAdd 
                         ? 'bg-indigo-50 border border-indigo-300 text-indigo-700 hover:bg-indigo-200 shadow-sm' 
                         : (isActive ? 'bg-indigo-600 text-white shadow-md' : 'bg-white text-gray-700 border border-gray-200 hover:bg-indigo-50 shadow-sm')}"
@@ -809,23 +809,26 @@
                 </button>
             `;
 
+            // ** [修正後] 篩選器 HTML 結構：確保標籤和捲動區塊分離 **
             filterContainer.innerHTML = `
-                <div class="flex items-center gap-2 filter-scroll pb-2 border-b border-gray-100">
+                <div class="flex flex-col gap-1 pb-2 border-b border-gray-100">
                     <span class="text-xs font-bold text-gray-500 mr-2 uppercase tracking-wider flex-shrink-0 whitespace-nowrap">成員篩選</span>
-                    ${createFilterBtn('全部', currentMemberFilter === '全部', "window.app.setMemberFilter('全部')")}
-                    ${members.map(m => createFilterBtn(m, currentMemberFilter === m, `window.app.setMemberFilter('${m}')`)).join('')}
-                    ${createFilterBtn('新增成員', false, "window.app.addNewMember()", true)}
+                    <div class="flex items-center gap-2 filter-scroll">
+                        ${createFilterBtn('全部', currentMemberFilter === '全部', "window.app.setMemberFilter('全部')")}
+                        ${members.map(m => createFilterBtn(m, currentMemberFilter === m, `window.app.setMemberFilter('${m}')`)).join('')}
+                        ${createFilterBtn('新增成員', false, "window.app.addNewMember()", true)}
+                    </div>
                 </div>
 
-                <div class="flex items-center gap-2 filter-scroll pt-1">
+                <div class="flex flex-col gap-1 pt-1">
                     <span class="text-xs font-bold text-gray-500 mr-2 uppercase tracking-wider flex-shrink-0 whitespace-nowrap">分類篩選</span>
-                    <div class="flex flex-wrap gap-2">
+                    <div class="flex items-center gap-2 filter-scroll">
                         ${categories.map((cat, idx) => {
                             const isAll = cat === '全部';
                             const buttonClass = currentCategoryFilter === cat ? 'bg-indigo-600 text-white' : 'text-gray-700 hover:bg-indigo-100';
                             
                             return `
-                                <div class="inline-flex items-center bg-white rounded-lg shadow-md border border-gray-200 hover:shadow-lg transition-shadow">
+                                <div class="inline-flex items-center bg-white rounded-lg shadow-md border border-gray-200 hover:shadow-lg transition-shadow flex-shrink-0">
                                     ${!isAll && idx > 0 ? `<button onclick="window.app.moveCategoryLeft('${cat}')" class="pl-2 pr-1 py-2 hover:bg-gray-100 transition rounded-l-lg text-gray-500" title="向左移動">
                                         <i data-lucide="chevron-left" class="lucide-icon w-4 h-4"></i>
                                     </button>` : '<span class="w-1"></span>'}
@@ -841,16 +844,18 @@
                                 </div>
                             `;
                         }).join('')}
-                    </div>
                     <button 
                         onclick="window.app.showAddCategoryModal()"
-                        class="px-4 py-2 text-sm font-semibold rounded-lg transition duration-150 bg-indigo-50 border border-indigo-300 text-indigo-700 hover:bg-indigo-200 hover:shadow-md flex items-center shadow-sm whitespace-nowrap"
+                        class="px-4 py-2 text-sm font-semibold rounded-lg transition duration-150 bg-indigo-50 border border-indigo-300 text-indigo-700 hover:bg-indigo-200 hover:shadow-md flex items-center shadow-sm whitespace-nowrap flex-shrink-0"
                     >
                         <i data-lucide="plus" class="lucide-icon w-4 h-4 mr-1"></i>
                         新增分類
                     </button>
+                    </div>
                 </div>
             `;
+            // ** [修正後] 篩選器 HTML 結構結束 **
+
 
             if (filteredSamples.length === 0) {
                  if (samples.length === 0 && userId) {
