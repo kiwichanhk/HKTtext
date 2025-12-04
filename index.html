@@ -7,7 +7,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&family=Noto+Sans+TC:wght=100..900&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&family=Noto+Sans+TC:wght@100..900&display=swap');
         body {
             font-family: 'Noto Sans TC', 'Inter', sans-serif;
             background-color: #f7f7f9;
@@ -27,32 +27,32 @@
         .modal-content-transition {
             transition: transform 0.3s ease-out;
         }
-        /* 讓篩選器可以捲動 */
+        
+        /* ** [優化] 讓篩選器可以橫向捲動且隱藏捲軸 ** */
         .filter-scroll {
             overflow-x: auto;
+            display: flex;
+            flex-wrap: nowrap; /* 強制不換行 */
             -ms-overflow-style: none; /* IE and Edge */
             scrollbar-width: none; /* Firefox */
+            padding-bottom: 4px; /* 預留陰影空間 */
         }
         .filter-scroll::-webkit-scrollbar {
             display: none; /* Chrome, Safari and Opera */
         }
-        /* ** [優化] 針對手機調整頂部標題和搜索的佈局 ** */
+
+        /* 手機版標題佈局調整 */
         @media (max-width: 640px) {
-            .mobile-header-stack {
+            .mobile-compact-header {
                 flex-direction: column;
                 align-items: flex-start;
+                gap: 0.5rem;
             }
-            .mobile-header-actions {
+            .mobile-compact-actions {
                 width: 100%;
-                justify-content: space-between;
-                margin-top: 1rem;
-            }
-            .auth-status-bar {
-                 flex-wrap: wrap; 
-                 gap: 0.5rem;
-            }
-            .auth-status-bar > button {
-                flex-grow: 1;
+                justify-content: flex-start;
+                flex-wrap: wrap;
+                gap: 0.5rem;
             }
         }
     </style>
@@ -95,13 +95,11 @@
         };
         
         let samples = [];
-        // [移除 Profile 邏輯: profiles, currentProfileName]
         let currentCategoryFilter = '全部';
         let searchTerm = '';
         let activeEditId = null;
         const appId = 'default-app-id';
         
-        // ⭐ 恢復成員變數 (Member Variables Restored)
         let members = JSON.parse(localStorage.getItem('hkt_members')) || ['通用']; 
         let currentMemberFilter = '全部'; 
 
@@ -149,8 +147,6 @@
         
         // --- 3. 認證與監聽 ---
 
-        // [移除 renderUserTabs 函數]
-
         const setupSearchListener = () => {
             const input = document.getElementById('search-input');
             if (input) {
@@ -175,26 +171,26 @@
                     const isViewingShared = sharedUserId !== null;
                     const displayId = userId.length > 12 ? userId.substring(0, 8) + '...' : userId;
 
+                    // ** [優化] 狀態列更緊湊 **
                     document.getElementById('auth-status').innerHTML = `
                         <span class="hidden" id="actual-user-id">${userId}</span>
-                        ${isViewingShared ? '<span class="text-xs text-orange-600 bg-orange-50 px-2 py-1 rounded-lg mr-2 font-medium">👁️ 查看模式</span>' : ''}
-                        ${!isViewingShared ? `<button onclick="window.app.setCustomId()" class="text-xs ${isUsingCustomId ? 'text-green-600 bg-green-50 font-semibold' : 'text-gray-600 bg-gray-100'} px-2 py-1 rounded-lg hover:bg-opacity-80 transition mr-2" title="${isUsingCustomId ? '點擊修改自訂ID' : '點擊設置自訂ID'}">
-                            🆔 ${isUsingCustomId ? displayId : '設置ID'}
+                        ${isViewingShared ? '<span class="text-xs text-orange-600 bg-orange-50 px-2 py-1 rounded mr-1 font-medium whitespace-nowrap">👁️ 查看</span>' : ''}
+                        ${!isViewingShared ? `<button onclick="window.app.setCustomId()" class="text-xs ${isUsingCustomId ? 'text-green-600 bg-green-50 font-semibold' : 'text-gray-600 bg-gray-100'} px-2 py-1 rounded hover:bg-opacity-80 transition mr-1 whitespace-nowrap" title="${isUsingCustomId ? '點擊修改自訂ID' : '點擊設置自訂ID'}">
+                            🆔 ${isUsingCustomId ? displayId : 'ID'}
                         </button>` : ''}
-                        <button onclick="window.app.copyShareLink()" class="text-xs text-indigo-600 hover:text-indigo-800 flex items-center bg-indigo-50 px-2 py-1 rounded-lg hover:bg-indigo-100 transition mr-2" title="複製分享連結">
+                        <button onclick="window.app.copyShareLink()" class="text-xs text-indigo-600 hover:text-indigo-800 flex items-center bg-indigo-50 px-2 py-1 rounded hover:bg-indigo-100 transition mr-1 whitespace-nowrap" title="複製分享連結">
                             <i data-lucide="share-2" class="lucide-icon w-3 h-3 mr-1"></i>
                             分享
                         </button>
-                        <span class="text-xs text-gray-500 flex items-center" title="已連接 Firebase 資料庫">
+                        <span class="text-xs text-gray-500 flex items-center bg-gray-50 px-2 py-1 rounded whitespace-nowrap" title="已連接 Firebase 資料庫">
                             <i data-lucide="database" class="lucide-icon w-3 h-3 mr-1 text-indigo-500"></i>
-                            已連接
+                            連接
                         </span>
                     `;
                     lucide.createIcons();
                     
                     renderUI();
                     setupSearchListener();
-                    // [移除 renderUserTabs 呼叫]
 
                     if (db) {
                         listenForSamples();
@@ -232,9 +228,8 @@
             const batch = writeBatch(db);
             for (const doc of originalSnapshot.docs) {
                 try {
-                    // [移除 profile 欄位設置]
                     const data = doc.data();
-                    delete data.profile; // 移除 profile 欄位
+                    delete data.profile; 
                     batch.set(doc(customIdPath), data);
                     batch.delete(doc(originalPath, doc.id));
                     migratedCount++;
@@ -248,7 +243,6 @@
 
         const getSamplesCollectionRef = () => {
             if (!userId || !db) return null;
-            // 由於不再有 profile，直接使用 user path
             return collection(db, `artifacts/${appId}/users/${userId}/text_samples`);
         };
 
@@ -264,9 +258,6 @@
                     ...doc.data()
                 }));
                 
-                // [移除 Profile 樣本過濾邏輯]
-                
-                // ⭐ 動態更新成員列表 (Restored Member logic)
                 const dbMembers = new Set(samples.map(s => s.member).filter(m => m));
                 let membersUpdated = false;
                 dbMembers.forEach(m => {
@@ -277,10 +268,9 @@
                 });
                 if (members.length === 0) members = ['通用'];
                 if (membersUpdated) {
-                    localStorage.setItem('hkt_members', JSON.stringify(members.filter(m => m !== '全部'))); // 確保不存 '全部'
+                    localStorage.setItem('hkt_members', JSON.stringify(members.filter(m => m !== '全部'))); 
                 }
                 
-                // ⭐ 置頂排序邏輯
                 samples.sort((a, b) => {
                     const isPinnedA = a.isPinned || false;
                     const isPinnedB = b.isPinned || false;
@@ -304,15 +294,11 @@
             if (!sample) return;
             
             const colRef = getSamplesCollectionRef();
-            if (!colRef) {
-                showModal('錯誤', '資料庫服務尚未準備好。', 'alert-octagon');
-                return;
-            }
+            if (!colRef) return;
 
             const newPinStatus = !sample.isPinned;
             
             try {
-                // 必須使用 doc(colRef, id) 因為 getSamplesCollectionRef() 返回的是 CollectionReference
                 await updateDoc(doc(colRef, id), {
                     isPinned: newPinStatus
                 });
@@ -323,16 +309,9 @@
         };
 
 
-        // AI 翻譯骨架 (要求 3)
         const translateToEnglish = async (text) => {
             if (!text || !text.trim()) return '';
-            
             console.log("需要翻譯的中文內容:", text);
-            
-            // 由於這是同步保存操作，我們在這裡可以模擬一個延遲來假裝等待翻譯
-            // await new Promise(resolve => setTimeout(resolve, 1000)); 
-
-            // 為了讓樣本能順利儲存，我們在不阻塞的情況下返回一個提示用戶的英文文本
             return `[AI Translation Placeholder] Dear customer, the Chinese content has been successfully recorded. Please integrate your external translation API to fill in this field automatically, ensuring politeness and professionalism, as requested. Original text: ${text.substring(0, 50)}...`;
         };
         
@@ -349,9 +328,7 @@
                     content_ch: data.content_ch || '',
                     content_en: data.content_en || '',
                     category: data.category,
-                    // ⭐ 恢復 member 欄位
                     member: data.member || '通用',
-                    // [移除 profile 欄位]
                     timestamp: serverTimestamp()
                 };
 
@@ -375,10 +352,7 @@
         const deleteSample = async (id) => {
             if (!id) return;
             const colRef = getSamplesCollectionRef();
-            if (!colRef) {
-                showModal('錯誤', '資料庫服務尚未準備好。', 'alert-octagon');
-                return;
-            }
+            if (!colRef) return;
 
             try {
                 const docRef = doc(colRef, id);
@@ -394,7 +368,6 @@
         
         const handleDeleteClick = (id) => {
             const modal = document.getElementById('confirm-modal');
-            
             document.getElementById('confirm-message').textContent = '您確定要永久刪除此文字樣本嗎？此操作無法撤銷。';
             
             const confirmBtn = document.getElementById('confirm-action-btn');
@@ -415,7 +388,7 @@
 
         const showAddSampleModal = () => {
             updateNewSampleCategoryOptions();
-            updateNewSampleMemberOptions(); // ⭐ 新增更新成員下拉選單
+            updateNewSampleMemberOptions(); 
             const modal = document.getElementById('add-sample-modal');
             modal.classList.remove('opacity-0', 'pointer-events-none');
             modal.classList.add('opacity-100');
@@ -424,7 +397,7 @@
             document.getElementById('new-content-ch').value = '';
             document.getElementById('new-content-en').value = '';
             document.getElementById('new-category').value = '未分類';
-            document.getElementById('new-member').value = '通用'; // 預設通用
+            document.getElementById('new-member').value = '通用'; 
             lucide.createIcons();
         };
 
@@ -459,7 +432,7 @@
             
             const existingCategories = getCategories().filter(c => c !== '全部');
             if (existingCategories.includes(newCategoryName)) {
-                showModal('注意', `分類 "${newCategoryName}" 已經存在。已為您切換至該篩選器。`, 'alert-triangle');
+                showModal('注意', `分類 "${newCategoryName}" 已經存在。`, 'alert-triangle');
                 setCategoryFilter(newCategoryName);
                 hideAddCategoryModal();
                 return;
@@ -470,20 +443,19 @@
                 content_ch: `這是為新分類「${newCategoryName}」建立的預留樣本。請編輯或刪除此項目。`,
                 content_en: '',
                 category: newCategoryName,
-                member: currentMemberFilter === '全部' ? '通用' : currentMemberFilter // 預設使用當前成員篩選器
+                member: currentMemberFilter === '全部' ? '通用' : currentMemberFilter 
             };
 
             try {
                 await saveSample(placeholderSample);
                 setCategoryFilter(newCategoryName);
                 hideAddCategoryModal();
-                showModal('分類新增成功', `已建立新分類「${newCategoryName}」並切換篩選。`, 'folder-check');
+                showModal('分類新增成功', `已建立新分類「${newCategoryName}」。`, 'folder-check');
             } catch (error) {
                 showModal('錯誤', `無法新增分類: ${error.message}`, 'alert-octagon');
             }
         };
         
-        // ⭐ 新增成員邏輯 (Restored)
         const addNewMember = () => {
             const name = prompt("請輸入新成員名稱：");
             if (name && name.trim()) {
@@ -513,9 +485,8 @@
                 const contentChInput = sampleCard.querySelector('#edit-content-ch');
                 const contentEnInput = sampleCard.querySelector('#edit-content-en');
                 const categorySelect = sampleCard.querySelector('#edit-category');
-                const memberSelect = sampleCard.querySelector('#edit-member'); // ⭐ 恢復成員選擇
+                const memberSelect = sampleCard.querySelector('#edit-member');
 
-                // ⭐ 檢查並自動翻譯 (編輯模式)
                 let finalContentEn = contentEnInput.value;
                 if (contentChInput.value.trim() && !finalContentEn.trim()) {
                     showModal('AI 翻譯啟動', '偵測到中文內容，正在自動生成英文譯文...', 'globe');
@@ -528,7 +499,7 @@
                     content_ch: contentChInput.value,
                     content_en: finalContentEn,
                     category: categorySelect.value,
-                    member: memberSelect.value // ⭐ 恢復成員選擇
+                    member: memberSelect.value
                 };
                 
                 saveSample(updatedSample);
@@ -549,7 +520,6 @@
             renderUI();
         };
         
-        // ⭐ 恢復成員篩選設置
         const setMemberFilter = (member) => {
             currentMemberFilter = member;
             renderUI();
@@ -568,7 +538,6 @@
             return categories;
         };
         
-        // ⭐ 向左移動分類
         const moveCategoryLeft = (cat) => {
             const categories = getCategories().filter(c => c !== '全部'); 
             const idx = categories.indexOf(cat);
@@ -579,7 +548,6 @@
             }
         };
 
-        // ⭐ 向右移動分類
         const moveCategoryRight = (cat) => {
             const categories = getCategories().filter(c => c !== '全部'); 
             const idx = categories.indexOf(cat);
@@ -605,7 +573,6 @@
             `;
         };
         
-        // ⭐ 新增：更新新增/編輯模態框中的成員下拉選單
         const updateNewSampleMemberOptions = () => {
             const memberSelect = document.getElementById('new-member');
             if (!memberSelect) return;
@@ -643,7 +610,6 @@
                 </select>
             `;
             
-            // ⭐ 編輯模式下的成員選擇
             const editMemberSelect = `
                 <select id="edit-member" class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-indigo-500 focus:border-indigo-500 block w-full p-2.5">
                     ${memberOptions}
@@ -730,7 +696,7 @@
             const contentChInput = document.getElementById('new-content-ch');
             const contentEnInput = document.getElementById('new-content-en');
             const categorySelect = document.getElementById('new-category');
-            const memberSelect = document.getElementById('new-member'); // ⭐ 恢復成員欄位
+            const memberSelect = document.getElementById('new-member'); 
             
             let category = categorySelect.value;
             
@@ -739,7 +705,7 @@
                 content_ch: contentChInput.value || '',
                 content_en: contentEnInput.value || '',
                 category: category,
-                member: memberSelect.value // ⭐ 恢復成員欄位
+                member: memberSelect.value 
             };
 
             if (!newSample.content_ch.trim() && !newSample.content_en.trim()) {
@@ -747,7 +713,6 @@
                 return;
             }
             
-            // ⭐ 檢查並自動翻譯 (要求 3)
             if (newSample.content_ch.trim() && !newSample.content_en.trim()) {
                 showModal('AI 翻譯啟動', '偵測到中文內容，正在自動生成英文譯文...', 'globe');
                 newSample.content_en = await translateToEnglish(newSample.content_ch);
@@ -769,22 +734,15 @@
             
             if (!samplesContainer || !filterContainer) return;
             
-            const categories = getCategories();
-            
-            // --- 篩選邏輯 (成員 AND 分類) ---
+            // --- 篩選邏輯 ---
             let filteredSamples = samples;
-            
-            // 1. Member Filter (Restored logic)
             if (currentMemberFilter !== '全部') {
                 filteredSamples = filteredSamples.filter(s => s.member === currentMemberFilter);
             }
-            
-            // 2. Category Filter (Existing logic)
             if (currentCategoryFilter !== '全部') {
                 filteredSamples = filteredSamples.filter(s => s.category === currentCategoryFilter);
             }
 
-            // 3. Search Filter (Existing logic)
             const lowerTerm = searchTerm ? searchTerm.toLowerCase().trim() : '';
             if (lowerTerm) {
                 filteredSamples = filteredSamples.filter(s => 
@@ -794,12 +752,14 @@
                 );
             }
 
-            // --- 渲染篩選器區域 (成員列 + 分類列) ---
+            // --- 渲染篩選器區域 (優化版: 橫向捲動 + 手機隱藏箭頭) ---
+            
+            const categories = getCategories();
             
             const createFilterBtn = (text, isActive, onClick, isAdd = false) => `
                 <button 
                     onclick="${onClick}"
-                    class="px-3 py-1.5 text-sm font-semibold rounded-lg transition duration-150 whitespace-nowrap flex items-center
+                    class="px-3 py-1.5 text-sm font-semibold rounded-lg transition duration-150 whitespace-nowrap flex items-center flex-shrink-0
                     ${isAdd 
                         ? 'bg-indigo-50 border border-indigo-300 text-indigo-700 hover:bg-indigo-200 shadow-sm' 
                         : (isActive ? 'bg-indigo-600 text-white shadow-md' : 'bg-white text-gray-700 border border-gray-200 hover:bg-indigo-50 shadow-sm')}"
@@ -809,48 +769,58 @@
                 </button>
             `;
 
+            // ** [優化後] 篩選器 HTML：水平捲動 **
             filterContainer.innerHTML = `
-                <div class="flex items-center gap-2 filter-scroll pb-2 border-b border-gray-100">
+                <div class="flex flex-col gap-1 pb-2 border-b border-gray-100">
                     <span class="text-xs font-bold text-gray-500 mr-2 uppercase tracking-wider flex-shrink-0 whitespace-nowrap">成員篩選</span>
-                    ${createFilterBtn('全部', currentMemberFilter === '全部', "window.app.setMemberFilter('全部')")}
-                    ${members.map(m => createFilterBtn(m, currentMemberFilter === m, `window.app.setMemberFilter('${m}')`)).join('')}
-                    ${createFilterBtn('新增成員', false, "window.app.addNewMember()", true)}
+                    <div class="filter-scroll w-full gap-2">
+                        ${createFilterBtn('全部', currentMemberFilter === '全部', "window.app.setMemberFilter('全部')")}
+                        ${members.map(m => createFilterBtn(m, currentMemberFilter === m, `window.app.setMemberFilter('${m}')`)).join('')}
+                        ${createFilterBtn('新增成員', false, "window.app.addNewMember()", true)}
+                    </div>
                 </div>
 
-                <div class="flex items-center gap-2 filter-scroll pt-1">
+                <div class="flex flex-col gap-1 pt-1">
                     <span class="text-xs font-bold text-gray-500 mr-2 uppercase tracking-wider flex-shrink-0 whitespace-nowrap">分類篩選</span>
-                    <div class="flex flex-wrap gap-2">
+                    <div class="filter-scroll w-full gap-2 pb-1">
                         ${categories.map((cat, idx) => {
                             const isAll = cat === '全部';
                             const buttonClass = currentCategoryFilter === cat ? 'bg-indigo-600 text-white' : 'text-gray-700 hover:bg-indigo-100';
                             
+                            // 注意: 使用 hidden sm:block 在手機上隱藏箭頭
                             return `
-                                <div class="inline-flex items-center bg-white rounded-lg shadow-md border border-gray-200 hover:shadow-lg transition-shadow">
-                                    ${!isAll && idx > 0 ? `<button onclick="window.app.moveCategoryLeft('${cat}')" class="pl-2 pr-1 py-2 hover:bg-gray-100 transition rounded-l-lg text-gray-500" title="向左移動">
-                                        <i data-lucide="chevron-left" class="lucide-icon w-4 h-4"></i>
-                                    </button>` : '<span class="w-1"></span>'}
+                                <div class="inline-flex items-center bg-white rounded-lg shadow-sm border border-gray-200 hover:shadow-md transition-shadow flex-shrink-0 whitespace-nowrap">
+                                    ${!isAll && idx > 0 ? `
+                                    <button onclick="window.app.moveCategoryLeft('${cat}')" class="hidden sm:block pl-2 pr-1 py-1.5 hover:bg-gray-100 transition rounded-l-lg text-gray-400 hover:text-gray-600 border-r border-gray-100" title="向左移動">
+                                        <i data-lucide="chevron-left" class="lucide-icon w-3 h-3"></i>
+                                    </button>` : ''}
+                                    
                                     <button 
                                         onclick="window.app.setCategoryFilter('${cat}')"
-                                        class="px-3 py-2 text-sm font-semibold transition duration-150 ${buttonClass}"
+                                        class="px-3 py-1.5 text-sm font-medium transition duration-150 ${buttonClass} ${!isAll ? 'rounded-lg sm:rounded-none' : 'rounded-lg'}"
                                     >
-                                        ${cat} (${cat === '全部' ? samples.length : samples.filter(s => s.category === cat).length})
+                                        ${cat} <span class="text-xs opacity-70 ml-1">(${cat === '全部' ? samples.length : samples.filter(s => s.category === cat).length})</span>
                                     </button>
-                                    ${!isAll && idx < categories.length - 1 ? `<button onclick="window.app.moveCategoryRight('${cat}')" class="pr-2 pl-1 py-2 hover:bg-gray-100 transition rounded-r-lg text-gray-500" title="向右移動">
-                                        <i data-lucide="chevron-right" class="lucide-icon w-4 h-4"></i>
-                                    </button>` : '<span class="w-1"></span>'}
+                                    
+                                    ${!isAll && idx < categories.length - 1 ? `
+                                    <button onclick="window.app.moveCategoryRight('${cat}')" class="hidden sm:block pr-2 pl-1 py-1.5 hover:bg-gray-100 transition rounded-r-lg text-gray-400 hover:text-gray-600 border-l border-gray-100" title="向右移動">
+                                        <i data-lucide="chevron-right" class="lucide-icon w-3 h-3"></i>
+                                    </button>` : ''}
                                 </div>
                             `;
                         }).join('')}
+                        
+                        <button 
+                            onclick="window.app.showAddCategoryModal()"
+                            class="px-3 py-1.5 text-sm font-semibold rounded-lg transition duration-150 bg-indigo-50 border border-indigo-300 text-indigo-700 hover:bg-indigo-200 hover:shadow-md flex items-center shadow-sm whitespace-nowrap flex-shrink-0"
+                        >
+                            <i data-lucide="plus" class="lucide-icon w-3 h-3 mr-1"></i>
+                            新增
+                        </button>
                     </div>
-                    <button 
-                        onclick="window.app.showAddCategoryModal()"
-                        class="px-4 py-2 text-sm font-semibold rounded-lg transition duration-150 bg-indigo-50 border border-indigo-300 text-indigo-700 hover:bg-indigo-200 hover:shadow-md flex items-center shadow-sm whitespace-nowrap"
-                    >
-                        <i data-lucide="plus" class="lucide-icon w-4 h-4 mr-1"></i>
-                        新增分類
-                    </button>
                 </div>
             `;
+
 
             if (filteredSamples.length === 0) {
                  if (samples.length === 0 && userId) {
@@ -889,22 +859,15 @@
 
         // --- 7. 暴露給 Window ---
         window.app = {
-            // [移除 switchProfile 函數]
-            // [移除 addProfile 函數]
-            // [移除 deleteProfile 函數]
-            
             moveCategoryLeft,
             moveCategoryRight,
             togglePin,
-
-            
             copyText: (id, lang) => {
                 const sample = samples.find(s => s.id === id);
                 if(!sample) return;
                 const text = lang === 'ch' ? sample.content_ch : sample.content_en;
                 
                 if(!text || !text.trim()) {
-                    // ⭐ 統一彈窗樣式 (已修復)
                     showModal('內容為空', '該語言內容為空，請先編輯！', 'alert-triangle');
                     return;
                 }
@@ -916,8 +879,8 @@
             },
 
             setCategoryFilter,
-            setMemberFilter, // ⭐ 恢復成員篩選設置
-            addNewMember, // ⭐ 恢復新增成員
+            setMemberFilter, 
+            addNewMember,
             toggleEditMode,
             createNewSample,
             handleDeleteClick,
@@ -957,7 +920,7 @@
                 const shareUrl = `${window.location.origin}${window.location.pathname}?userId=${currentUserId}`;
 
                 navigator.clipboard.writeText(shareUrl).then(() => {
-                    showModal('分享連結已複製 📋', `您可以將此連結分享給其他設備：\n\n${shareUrl}\n\n💡 提示：\n• 將連結加入書籤，方便下次使用\n• 更新內容會自動同步，不需重新分享`, 'share-2');
+                    showModal('分享連結已複製 📋', `您可以將此連結分享給其他設備：\n\n${shareUrl}`, 'share-2');
                 }).catch(err => {
                     showModal('分享連結', `請複製以下連結：\n\n${shareUrl}`, 'share-2');
                 });
@@ -1084,34 +1047,35 @@
         </div>
     </div>
 
-    <div id="app-container" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <div id="app-container" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 md:py-8">
         
-        <div class="bg-white rounded-2xl shadow-xl p-6 mb-4 border-l-8 border-indigo-600 flex flex-col lg:flex-row justify-between items-center relative overflow-hidden">
-             <div class="absolute top-0 right-0 -mt-10 -mr-10 w-40 h-40 bg-indigo-50 rounded-full opacity-50 pointer-events-none"></div>
+        <div class="bg-white rounded-2xl shadow-xl p-3 md:p-6 mb-4 border-l-8 border-indigo-600 flex flex-col lg:flex-row justify-between items-center relative overflow-hidden">
+             <div class="absolute top-0 right-0 -mt-10 -mr-10 w-40 h-40 bg-indigo-50 rounded-full opacity-50 pointer-events-none hidden md:block"></div>
             
             <div class="z-10 w-full">
-                <div class="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 mb-4">
-                    <div>
-                        <h1 class="text-3xl md:text-4xl font-extrabold text-gray-900 tracking-tight mb-2">KIWI QUICK TEXT</h1>
+                <div class="flex flex-col md:flex-row md:items-center justify-between gap-2 md:gap-4 mb-2">
+                    <div class="flex justify-between items-center">
+                        <h1 class="text-xl md:text-4xl font-extrabold text-gray-900 tracking-tight">KIWI QUICK TEXT</h1>
                     </div>
 
-                    <div class="flex flex-col sm:flex-row items-center justify-end gap-3 mt-4 lg:mt-0 mobile-header-actions">
-                        <div id="auth-status" class="flex items-center space-x-2 bg-white px-3 py-1 rounded-full shadow border border-gray-200 text-sm text-gray-500 auth-status-bar w-full sm:w-auto">
+                    <div class="flex flex-wrap items-center justify-start md:justify-end gap-2 mt-1 md:mt-0 mobile-compact-actions">
+                        <div id="auth-status" class="flex items-center flex-wrap gap-1 text-sm text-gray-500">
                             <i data-lucide="loader" class="lucide-icon w-4 h-4 animate-spin text-indigo-500"></i>
-                            <span>正在連接資料庫...</span>
+                            <span>連接中...</span>
                         </div>
 
                         <button 
                             onclick="window.app.showAddSampleModal()" 
-                            class="px-6 py-3 bg-green-600 hover:bg-green-700 text-white font-bold rounded-full shadow-lg hover:shadow-xl transition flex items-center whitespace-nowrap w-full sm:w-auto"
+                            class="px-3 py-1.5 md:px-6 md:py-3 bg-green-600 hover:bg-green-700 text-white font-bold rounded-full shadow-lg hover:shadow-xl transition flex items-center whitespace-nowrap text-sm md:text-base"
                         >
-                            <i data-lucide="plus" class="w-5 h-5 mr-2"></i>
-                            新增文字樣本
+                            <i data-lucide="plus" class="w-4 h-4 md:w-5 md:h-5 mr-1 md:mr-2"></i>
+                            <span class="hidden md:inline">新增文字樣本</span>
+                            <span class="md:hidden">新增</span>
                         </button>
                     </div>
                 </div>
 
-                <div class="mb-4">
+                <div class="mb-1">
                     <div class="relative max-w-full">
                         <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                             <i data-lucide="search" class="w-5 h-5 text-gray-400"></i>
@@ -1119,26 +1083,21 @@
                         <input 
                             type="text" 
                             id="search-input"
-                            class="block w-full pl-10 pr-3 py-2.5 border border-gray-300 rounded-xl leading-5 bg-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition shadow-sm"
+                            class="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-xl leading-5 bg-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition shadow-sm text-sm md:text-base"
                             placeholder="搜尋樣本標題或內容..."
                         >
                     </div>
                 </div>
             </div>
-            </div>
-            
-            <div class="mt-4 md:mt-0 z-10">
-                
-            </div>
         </div>
 
-        <div class="bg-white rounded-xl shadow-md p-4 mb-10 sticky top-4 z-30 bg-opacity-95 backdrop-blur-sm border border-gray-100">
-            <div id="filter-container" class="flex flex-col gap-4">
+        <div class="bg-white rounded-xl shadow-md p-3 md:p-4 mb-10 sticky top-2 md:top-4 z-30 bg-opacity-95 backdrop-blur-sm border border-gray-100">
+            <div id="filter-container" class="flex flex-col gap-2 md:gap-4">
                  <span class="text-gray-400 text-sm italic">載入篩選器中...</span>
             </div>
         </div>
 
-        <div id="samples-container" class="mt-10 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pb-10">
+        <div id="samples-container" class="mt-6 md:mt-10 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pb-10">
             <div class="col-span-full flex flex-col items-center justify-center py-20 text-gray-400 opacity-70">
                 <i data-lucide="loader" class="lucide-icon w-10 h-10 mb-3 animate-spin text-indigo-300"></i>
                 <p>正在載入您的作品...</p>
