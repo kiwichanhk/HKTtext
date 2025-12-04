@@ -28,7 +28,7 @@
             transition: transform 0.3s ease-out;
         }
         
-        /* ** [優化] 讓篩選器可以橫向捲動且隱藏捲軸 ** */
+        /* 讓篩選器可以橫向捲動且隱藏捲軸 */
         .filter-scroll {
             overflow-x: auto;
             display: flex;
@@ -171,7 +171,7 @@
                     const isViewingShared = sharedUserId !== null;
                     const displayId = userId.length > 12 ? userId.substring(0, 8) + '...' : userId;
 
-                    // ** [優化] 狀態列更緊湊 **
+                    // 狀態列
                     document.getElementById('auth-status').innerHTML = `
                         <span class="hidden" id="actual-user-id">${userId}</span>
                         ${isViewingShared ? '<span class="text-xs text-orange-600 bg-orange-50 px-2 py-1 rounded mr-1 font-medium whitespace-nowrap">👁️ 查看</span>' : ''}
@@ -308,11 +308,28 @@
             }
         };
 
-
+        // ** [修復] 使用 MyMemory 免費 API 進行真實翻譯 **
         const translateToEnglish = async (text) => {
             if (!text || !text.trim()) return '';
-            console.log("需要翻譯的中文內容:", text);
-            return `[AI Translation Placeholder] Dear customer, the Chinese content has been successfully recorded. Please integrate your external translation API to fill in this field automatically, ensuring politeness and professionalism, as requested. Original text: ${text.substring(0, 50)}...`;
+            
+            try {
+                // 使用 MyMemory API (免費版，無需 Key)
+                // 這裡將中文 (zh-TW) 翻譯為 英文 (en)
+                const apiUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=zh-TW|en`;
+                
+                const response = await fetch(apiUrl);
+                const data = await response.json();
+                
+                if (data && data.responseData && data.responseData.translatedText) {
+                    return data.responseData.translatedText;
+                } else {
+                    console.warn("Translation API warning:", data);
+                    return `[翻譯服務忙碌] 請稍後再試。原因: ${data.responseDetails || '未知錯誤'}`;
+                }
+            } catch (error) {
+                console.error("Translation error:", error);
+                return "[翻譯失敗] 網絡連線錯誤，請檢查您的網路。";
+            }
         };
         
         const saveSample = async (data) => {
@@ -474,7 +491,7 @@
         };
 
 
-        const toggleEditMode = (id) => {
+        const toggleEditMode = async (id) => {
             const sampleCard = document.getElementById(`sample-${id}`);
             if (!sampleCard) return;
 
@@ -488,9 +505,11 @@
                 const memberSelect = sampleCard.querySelector('#edit-member');
 
                 let finalContentEn = contentEnInput.value;
+                
+                // 自動翻譯邏輯 (編輯時)
                 if (contentChInput.value.trim() && !finalContentEn.trim()) {
                     showModal('AI 翻譯啟動', '偵測到中文內容，正在自動生成英文譯文...', 'globe');
-                    finalContentEn = translateToEnglish(contentChInput.value);
+                    finalContentEn = await translateToEnglish(contentChInput.value);
                 }
                 
                 const updatedSample = {
@@ -673,7 +692,7 @@
                         <div class="flex flex-col space-y-2 h-96">
                             <label class="text-xs font-bold text-gray-500">中文內容</label>
                             <textarea id="edit-content-ch" class="flex-grow w-full border border-gray-300 p-2 rounded-lg resize-none focus:ring-indigo-500">${sample.content_ch || ''}</textarea>
-                            <label class="text-xs font-bold text-gray-500">英文內容</label>
+                            <label class="text-xs font-bold text-gray-500">英文內容 (自動翻譯)</label>
                             <textarea id="edit-content-en" class="flex-grow w-full border border-gray-300 p-2 rounded-lg resize-none focus:ring-indigo-500">${sample.content_en || ''}</textarea>
                         </div>
 
@@ -752,7 +771,7 @@
                 );
             }
 
-            // --- 渲染篩選器區域 (優化版: 橫向捲動 + 手機隱藏箭頭) ---
+            // --- 渲染篩選器區域 (橫向捲動 + 手機隱藏箭頭) ---
             
             const categories = getCategories();
             
@@ -769,7 +788,6 @@
                 </button>
             `;
 
-            // ** [優化後] 篩選器 HTML：水平捲動 **
             filterContainer.innerHTML = `
                 <div class="flex flex-col gap-1 pb-2 border-b border-gray-100">
                     <span class="text-xs font-bold text-gray-500 mr-2 uppercase tracking-wider flex-shrink-0 whitespace-nowrap">成員篩選</span>
