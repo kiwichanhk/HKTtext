@@ -35,8 +35,7 @@
             flex-wrap: nowrap; /* 強制不換行 */
             -ms-overflow-style: none; /* IE and Edge */
             scrollbar-width: none; /* Firefox */
-            padding-bottom: 2px; /* 預留陰影空間 (已縮減) */
-            padding-right: 10px; /* [新增] 右側預留空間，避免按鈕貼邊 */
+            padding-bottom: 4px; /* 預留陰影空間 */
         }
         .filter-scroll::-webkit-scrollbar {
             display: none; /* Chrome, Safari and Opera */
@@ -47,13 +46,13 @@
             .mobile-compact-header {
                 flex-direction: column;
                 align-items: flex-start;
-                gap: 0.25rem; /* [縮減] */
+                gap: 0.5rem;
             }
             .mobile-compact-actions {
                 width: 100%;
                 justify-content: flex-start;
                 flex-wrap: wrap;
-                gap: 0.25rem; /* [縮減] */
+                gap: 0.5rem;
             }
         }
     </style>
@@ -101,6 +100,7 @@
         let activeEditId = null;
         const appId = 'default-app-id';
         
+        // 確保 members 始終從 localStorage 加載
         let members = JSON.parse(localStorage.getItem('hkt_members')) || ['通用']; 
         let currentMemberFilter = '全部'; 
 
@@ -231,7 +231,7 @@
                 try {
                     const data = doc.data();
                     delete data.profile; 
-                    batch.set(doc(customIdPath), data);
+                    batch.set(doc(customIdPath, doc.id), data); // 確保使用原始 doc.id
                     batch.delete(doc(originalPath, doc.id));
                     migratedCount++;
                 } catch (e) { console.error(e); }
@@ -259,18 +259,32 @@
                     ...doc.data()
                 }));
                 
+                // --- 成員列表更新邏輯優化 ---
                 const dbMembers = new Set(samples.map(s => s.member).filter(m => m));
                 let membersUpdated = false;
+                
+                // 獲取當前 localStorage 存儲的成員列表（排除 '全部'/'通用'）
+                let storedMembers = JSON.parse(localStorage.getItem('hkt_members')) || [];
+                
+                // 確保 '通用' 始終是預設選項
+                if (!storedMembers.includes('通用')) storedMembers.push('通用');
+                
+                // 將資料庫中的成員合併到 storedMembers
                 dbMembers.forEach(m => {
-                    if (!members.includes(m)) {
-                        members.push(m);
+                    if (!storedMembers.includes(m)) {
+                        storedMembers.push(m);
                         membersUpdated = true;
                     }
                 });
-                if (members.length === 0) members = ['通用'];
+                
+                // 更新全域 members 變數
+                members = storedMembers; 
+                
                 if (membersUpdated) {
+                    // 將更新後的列表存回 localStorage (排除 '全部'，雖然它不應該在列表中)
                     localStorage.setItem('hkt_members', JSON.stringify(members.filter(m => m !== '全部'))); 
                 }
+                // --- 成員列表更新邏輯結束 ---
                 
                 samples.sort((a, b) => {
                     const isPinnedA = a.isPinned || false;
@@ -309,10 +323,12 @@
             }
         };
 
+        // ** [修復] 使用 MyMemory 免費 API 進行真實翻譯 **
         const translateToEnglish = async (text) => {
             if (!text || !text.trim()) return '';
             
             try {
+                // 使用 MyMemory API (免費版，無需 Key)
                 const apiUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=zh-TW|en`;
                 
                 const response = await fetch(apiUrl);
@@ -342,7 +358,6 @@
                     title: data.title,
                     content_ch: data.content_ch || '',
                     content_en: data.content_en || '',
-                    link: data.link || '', 
                     category: data.category,
                     member: data.member || '通用',
                     timestamp: serverTimestamp()
@@ -412,9 +427,6 @@
             document.getElementById('new-title').value = '';
             document.getElementById('new-content-ch').value = '';
             document.getElementById('new-content-en').value = '';
-            const linkInput = document.getElementById('new-link');
-            if(linkInput) linkInput.value = '';
-
             document.getElementById('new-category').value = '未分類';
             document.getElementById('new-member').value = '通用'; 
             lucide.createIcons();
@@ -479,6 +491,7 @@
             const name = prompt("請輸入新成員名稱：");
             if (name && name.trim()) {
                 const clean = name.trim();
+                // 排除保留名稱或關鍵字
                 if (clean === '全部' || clean === '通用') { showModal('保留名稱', '此名稱保留，請使用其他名稱。', 'alert-triangle'); return; }
                 if (!members.includes(clean)) {
                     members.push(clean);
@@ -503,12 +516,12 @@
                 const titleInput = sampleCard.querySelector('#edit-title');
                 const contentChInput = sampleCard.querySelector('#edit-content-ch');
                 const contentEnInput = sampleCard.querySelector('#edit-content-en');
-                const linkInput = sampleCard.querySelector('#edit-link'); 
                 const categorySelect = sampleCard.querySelector('#edit-category');
                 const memberSelect = sampleCard.querySelector('#edit-member');
 
                 let finalContentEn = contentEnInput.value;
                 
+                // 自動翻譯邏輯 (編輯時)
                 if (contentChInput.value.trim() && !finalContentEn.trim()) {
                     showModal('AI 翻譯啟動', '偵測到中文內容，正在自動生成英文譯文...', 'globe');
                     finalContentEn = await translateToEnglish(contentChInput.value);
@@ -519,7 +532,6 @@
                     title: titleInput.value,
                     content_ch: contentChInput.value,
                     content_en: finalContentEn,
-                    link: linkInput ? linkInput.value : '', 
                     category: categorySelect.value,
                     member: memberSelect.value
                 };
@@ -529,6 +541,7 @@
 
             } else {
                 if (activeEditId) {
+                    // 如果有其他樣本正在編輯，先取消編輯模式
                     activeEditId = null;
                     renderUI(); 
                 }
@@ -548,20 +561,44 @@
         }
 
         const getCategories = () => {
-            const categorySet = new Set(samples.map(s => s.category).filter(c => c && c !== '未分類'));
-            let categories = [...Array.from(categorySet).sort(), '全部'];
-
-            const customOrder = JSON.parse(localStorage.getItem('hkt_category_order') || '[]');
-            if (customOrder.length > 0) {
-                const ordered = customOrder.filter(c => categories.includes(c));
-                const unordered = categories.filter(c => !customOrder.includes(c) && c !== '全部');
-                categories = [...ordered, ...unordered, '全部'];
+            // 獲取所有有效的分類（排除空值）
+            const categorySet = new Set(samples.map(s => s.category).filter(c => c));
+            let categories = [...Array.from(categorySet).sort()];
+            
+            // 確保 '未分類' 始終存在且排在前面，如果它在樣本中被使用
+            if (categorySet.has('未分類')) {
+                categories = categories.filter(c => c !== '未分類');
+                categories.unshift('未分類');
+            } else if (samples.length > 0 && !categorySet.has('未分類')) {
+                // 如果有樣本但沒有未分類，也應該包含一個預設的
+                categories.unshift('未分類');
             }
-            return categories;
+
+            // 應用自訂排序 (只針對非保留分類)
+            const nonReservedCategories = categories.filter(c => c !== '全部' && c !== '未分類');
+            const customOrder = JSON.parse(localStorage.getItem('hkt_category_order') || '[]');
+            
+            let orderedCategories = [];
+            
+            // 處理自訂排序
+            if (customOrder.length > 0) {
+                orderedCategories = customOrder.filter(c => nonReservedCategories.includes(c));
+                const unordered = nonReservedCategories.filter(c => !customOrder.includes(c));
+                orderedCategories = [...orderedCategories, ...unordered];
+            } else {
+                orderedCategories = nonReservedCategories;
+            }
+            
+            // 重組最終列表：[未分類 (如果存在), 自訂排序/其他分類, 全部]
+            const finalCategories = categories.includes('未分類') ? ['未分類', ...orderedCategories] : orderedCategories;
+            finalCategories.push('全部');
+            
+            return finalCategories.filter((value, index, self) => self.indexOf(value) === index); // 排除重複
         };
         
+        // 修正：移動時排除 '未分類' 和 '全部'
         const moveCategoryLeft = (cat) => {
-            const categories = getCategories().filter(c => c !== '全部'); 
+            const categories = getCategories().filter(c => c !== '全部' && c !== '未分類'); 
             const idx = categories.indexOf(cat);
             if (idx > 0) {
                 [categories[idx], categories[idx-1]] = [categories[idx-1], categories[idx]];
@@ -571,7 +608,7 @@
         };
 
         const moveCategoryRight = (cat) => {
-            const categories = getCategories().filter(c => c !== '全部'); 
+            const categories = getCategories().filter(c => c !== '全部' && c !== '未分類'); 
             const idx = categories.indexOf(cat);
             if (idx < categories.length - 1 && idx !== -1) {
                 [categories[idx], categories[idx+1]] = [categories[idx+1], categories[idx]];
@@ -584,8 +621,9 @@
             const categories = getCategories();
             const categorySelect = document.getElementById('new-category');
             if (!categorySelect) return;
-
-            const categoryOptions = categories.filter(c => c !== '全部').map(cat => 
+            
+            // 創建選項，排除 '全部'，讓 '未分類' 成為預設值
+            const categoryOptions = categories.filter(c => c !== '全部' && c !== '未分類').map(cat => 
                 `<option value="${cat}">${cat}</option>`
             ).join('');
 
@@ -599,7 +637,8 @@
             const memberSelect = document.getElementById('new-member');
             if (!memberSelect) return;
             
-            const memberOptions = members.map(m => 
+            // 創建選項，排除 '全部'
+            const memberOptions = members.filter(m => m !== '全部').map(m => 
                 `<option value="${m}">${m}</option>`
             ).join('');
             
@@ -613,22 +652,22 @@
             }) : '尚未儲存';
 
             const categories = getCategories();
-            const memberOptions = members.map(m => 
+            
+            // 確保編輯時的成員下拉選單選項
+            const memberOptions = members.filter(m => m !== '全部').map(m => 
                 `<option value="${m}" ${sample.member === m ? 'selected' : ''}>${m}</option>`
             ).join('');
             
-            const categoryOptions = categories.filter(c => c !== '全部').map(cat => 
+            // 確保編輯時的分類下拉選單選項 (排除 '全部')
+            const allValidCategories = categories.filter(c => c !== '全部');
+            
+            const categoryOptions = allValidCategories.map(cat => 
                 `<option value="${cat}" ${sample.category === cat ? 'selected' : ''}>${cat}</option>`
             ).join('');
-            
-            if (!categories.includes(sample.category) && sample.category && sample.category !== '未分類') {
-                 categoryOptions.unshift(`<option value="${sample.category}" selected>${sample.category}</option>`);
-            }
             
             const editCategorySelect = `
                 <select id="edit-category" class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-indigo-500 focus:border-indigo-500 block w-full p-2.5">
                     ${categoryOptions}
-                    <option value="未分類" ${sample.category === '未分類' || !sample.category ? 'selected' : ''}>未分類</option>
                 </select>
             `;
             
@@ -641,7 +680,6 @@
             const isEditing = activeEditId === sample.id;
             const displayContent = (sample.content_ch || "").trim().replace(/\n/g, '<br>');
             const isPinned = sample.isPinned || false;
-            const hasLink = sample.link && sample.link.trim() !== '';
 
             return `
                 <div id="sample-${sample.id}" class="bg-white p-6 rounded-xl shadow-lg hover:shadow-xl transition duration-300 flex flex-col h-full border-t-4 ${isPinned ? 'border-yellow-500 ring-4 ring-yellow-100' : 'border-indigo-500'}">
@@ -698,9 +736,6 @@
                             <textarea id="edit-content-ch" class="flex-grow w-full border border-gray-300 p-2 rounded-lg resize-none focus:ring-indigo-500">${sample.content_ch || ''}</textarea>
                             <label class="text-xs font-bold text-gray-500">英文內容 (自動翻譯)</label>
                             <textarea id="edit-content-en" class="flex-grow w-full border border-gray-300 p-2 rounded-lg resize-none focus:ring-indigo-500">${sample.content_en || ''}</textarea>
-                            
-                            <label class="text-xs font-bold text-gray-500 mt-2">相關連結 (URL)</label>
-                            <input id="edit-link" value="${sample.link || ''}" class="w-full border border-gray-300 p-2 rounded-lg focus:ring-indigo-500" placeholder="https://example.com">
                         </div>
 
                     ` : `
@@ -709,17 +744,7 @@
                         </div>
                     `}
 
-                    ${!isEditing && hasLink ? `
-                        <div class="mt-auto mb-3 flex justify-end">
-                            <a href="${sample.link}" target="_blank" rel="noopener noreferrer" 
-                               class="inline-flex items-center px-4 py-2 bg-indigo-50 text-indigo-600 border border-indigo-200 rounded-lg hover:bg-indigo-100 hover:text-indigo-800 transition duration-150 text-sm font-medium shadow-sm">
-                                <i data-lucide="link" class="lucide-icon w-4 h-4 mr-2"></i>
-                                開啟相關連結
-                            </a>
-                        </div>
-                    ` : ''}
-
-                    <p class="text-xs text-gray-500 ${!isEditing && hasLink ? '' : 'mt-auto'} pt-2 border-t border-gray-100 flex justify-between items-center">
+                    <p class="text-xs text-gray-500 mt-auto pt-2 border-t border-gray-100 flex justify-between items-center">
                          <span>最後編輯於: ${date}</span>
                          ${isPinned ? '<span class="px-2 py-0.5 bg-yellow-400 text-xs font-semibold rounded-full text-gray-800 flex items-center"><i data-lucide="pin" class="lucide-icon w-3 h-3 mr-1"></i>置頂中</span>' : ''}
                     </p>
@@ -731,7 +756,6 @@
             const titleInput = document.getElementById('new-title');
             const contentChInput = document.getElementById('new-content-ch');
             const contentEnInput = document.getElementById('new-content-en');
-            const linkInput = document.getElementById('new-link'); 
             const categorySelect = document.getElementById('new-category');
             const memberSelect = document.getElementById('new-member'); 
             
@@ -741,7 +765,6 @@
                 title: titleInput.value || '無標題樣本',
                 content_ch: contentChInput.value || '',
                 content_en: contentEnInput.value || '',
-                link: linkInput.value || '', 
                 category: category,
                 member: memberSelect.value 
             };
@@ -751,6 +774,7 @@
                 return;
             }
             
+            // 自動翻譯，如果中文內容存在且英文內容為空
             if (newSample.content_ch.trim() && !newSample.content_en.trim()) {
                 showModal('AI 翻譯啟動', '偵測到中文內容，正在自動生成英文譯文...', 'globe');
                 newSample.content_en = await translateToEnglish(newSample.content_ch);
@@ -760,18 +784,95 @@
                 titleInput.value = '';
                 contentChInput.value = '';
                 contentEnInput.value = '';
-                linkInput.value = ''; 
                 categorySelect.value = '未分類';
                 memberSelect.value = '通用';
                 hideAddSampleModal();
             });
         };
+        
+        // --- [新增] 獨立的篩選器渲染函數以提高穩定性 ---
+        const renderFilters = () => {
+            const filterContainer = document.getElementById('filter-container');
+            if (!filterContainer) return;
+            
+            const createFilterBtn = (text, isActive, onClick, isAdd = false) => `
+                <button 
+                    onclick="${onClick}"
+                    class="px-3 py-1.5 text-sm font-semibold rounded-lg transition duration-150 whitespace-nowrap flex items-center flex-shrink-0
+                    ${isAdd 
+                        ? 'bg-indigo-50 border border-indigo-300 text-indigo-700 hover:bg-indigo-200 shadow-sm' 
+                        : (isActive ? 'bg-indigo-600 text-white shadow-md' : 'bg-white text-gray-700 border border-gray-200 hover:bg-indigo-50 shadow-sm')}"
+                >
+                    ${isAdd ? '<i data-lucide="plus" class="w-3 h-3 mr-1"></i>' : ''}
+                    ${text}
+                </button>
+            `;
+            
+            const categories = getCategories();
+            
+            filterContainer.innerHTML = `
+                <div class="flex flex-col gap-1 pb-2 border-b border-gray-100">
+                    <span class="text-xs font-bold text-gray-500 mr-2 uppercase tracking-wider flex-shrink-0 whitespace-nowrap">成員篩選</span>
+                    <div class="filter-scroll w-full gap-2">
+                        ${createFilterBtn('全部', currentMemberFilter === '全部', "window.app.setMemberFilter('全部')")}
+                        ${members.filter(m => m !== '全部').map(m => createFilterBtn(m, currentMemberFilter === m, `window.app.setMemberFilter('${m}')`)).join('')}
+                        ${createFilterBtn('新增成員', false, "window.app.addNewMember()", true)}
+                    </div>
+                </div>
+
+                <div class="flex flex-col gap-1 pt-1">
+                    <span class="text-xs font-bold text-gray-500 mr-2 uppercase tracking-wider flex-shrink-0 whitespace-nowrap">分類篩選</span>
+                    <div class="filter-scroll w-full gap-2 pb-1">
+                        ${categories.map((cat, idx) => {
+                            const isAll = cat === '全部';
+                            const isUncategorized = cat === '未分類';
+                            const buttonClass = currentCategoryFilter === cat ? 'bg-indigo-600 text-white' : 'text-gray-700 hover:bg-indigo-100';
+                            
+                            // 移動箭頭只對非保留分類顯示
+                            const canMove = !isAll && !isUncategorized;
+                            
+                            return `
+                                <div class="inline-flex items-center bg-white rounded-lg shadow-sm border border-gray-200 hover:shadow-md transition-shadow flex-shrink-0 whitespace-nowrap">
+                                    ${canMove && idx > 0 ? `
+                                    <button onclick="window.app.moveCategoryLeft('${cat}')" class="hidden sm:block pl-2 pr-1 py-1.5 hover:bg-gray-100 transition rounded-l-lg text-gray-400 hover:text-gray-600 border-r border-gray-100" title="向左移動">
+                                        <i data-lucide="chevron-left" class="lucide-icon w-3 h-3"></i>
+                                    </button>` : ''}
+                                    
+                                    <button 
+                                        onclick="window.app.setCategoryFilter('${cat}')"
+                                        class="px-3 py-1.5 text-sm font-medium transition duration-150 ${buttonClass} ${canMove ? 'rounded-lg sm:rounded-none' : 'rounded-lg'}"
+                                    >
+                                        ${cat} <span class="text-xs opacity-70 ml-1">(${cat === '全部' ? samples.length : samples.filter(s => s.category === cat).length})</span>
+                                    </button>
+                                    
+                                    ${canMove && idx < categories.length - 1 ? `
+                                    <button onclick="window.app.moveCategoryRight('${cat}')" class="hidden sm:block pr-2 pl-1 py-1.5 hover:bg-gray-100 transition rounded-r-lg text-gray-400 hover:text-gray-600 border-l border-gray-100" title="向右移動">
+                                        <i data-lucide="chevron-right" class="lucide-icon w-3 h-3"></i>
+                                    </button>` : ''}
+                                </div>
+                            `;
+                        }).join('')}
+                        
+                        <button 
+                            onclick="window.app.showAddCategoryModal()"
+                            class="px-3 py-1.5 text-sm font-semibold rounded-lg transition duration-150 bg-indigo-50 border border-indigo-300 text-indigo-700 hover:bg-indigo-200 hover:shadow-md flex items-center shadow-sm whitespace-nowrap flex-shrink-0"
+                        >
+                            <i data-lucide="plus" class="lucide-icon w-3 h-3 mr-1"></i>
+                            新增
+                        </button>
+                    </div>
+                </div>
+            `;
+            lucide.createIcons();
+        };
 
         const renderUI = () => {
             const samplesContainer = document.getElementById('samples-container');
-            const filterContainer = document.getElementById('filter-container');
             
-            if (!samplesContainer || !filterContainer) return;
+            if (!samplesContainer) return;
+            
+            // --- 渲染篩選器區域 (呼叫獨立函數) ---
+            renderFilters();
             
             // --- 篩選邏輯 ---
             let filteredSamples = samples;
@@ -790,76 +891,6 @@
                     (s.content_en && s.content_en.toLowerCase().includes(lowerTerm))
                 );
             }
-
-            // --- 渲染篩選器區域 (橫向捲動 + 手機隱藏箭頭) + [優化] 緊湊佈局 ---
-            
-            const categories = getCategories();
-            
-            // [優化] 按鈕內距縮小 px-3 -> px-2.5, py-1.5 -> py-1
-            const createFilterBtn = (text, isActive, onClick, isAdd = false) => `
-                <button 
-                    onclick="${onClick}"
-                    class="px-2.5 py-1 text-sm font-semibold rounded-lg transition duration-150 whitespace-nowrap flex items-center flex-shrink-0
-                    ${isAdd 
-                        ? 'bg-indigo-50 border border-indigo-300 text-indigo-700 hover:bg-indigo-200 shadow-sm' 
-                        : (isActive ? 'bg-indigo-600 text-white shadow-md' : 'bg-white text-gray-700 border border-gray-200 hover:bg-indigo-50 shadow-sm')}"
-                >
-                    ${isAdd ? '<i data-lucide="plus" class="w-3 h-3 mr-1"></i>' : ''}
-                    ${text}
-                </button>
-            `;
-
-            filterContainer.innerHTML = `
-                <div class="flex flex-col gap-1 pb-1 border-b border-gray-100">
-                    <span class="text-xs font-bold text-gray-500 mr-2 uppercase tracking-wider flex-shrink-0 whitespace-nowrap">成員篩選</span>
-                    <div class="filter-scroll w-full gap-1.5">
-                        ${createFilterBtn('全部', currentMemberFilter === '全部', "window.app.setMemberFilter('全部')")}
-                        ${members.map(m => createFilterBtn(m, currentMemberFilter === m, `window.app.setMemberFilter('${m}')`)).join('')}
-                        ${createFilterBtn('新增成員', false, "window.app.addNewMember()", true)}
-                    </div>
-                </div>
-
-                <div class="flex flex-col gap-1 pt-1">
-                    <span class="text-xs font-bold text-gray-500 mr-2 uppercase tracking-wider flex-shrink-0 whitespace-nowrap">分類篩選</span>
-                    <div class="filter-scroll w-full gap-1.5 pb-1">
-                        ${categories.map((cat, idx) => {
-                            const isAll = cat === '全部';
-                            const buttonClass = currentCategoryFilter === cat ? 'bg-indigo-600 text-white' : 'text-gray-700 hover:bg-indigo-100';
-                            
-                            // [優化] 按鈕樣式更緊湊
-                            return `
-                                <div class="inline-flex items-center bg-white rounded-lg shadow-sm border border-gray-200 hover:shadow-md transition-shadow flex-shrink-0 whitespace-nowrap">
-                                    ${!isAll && idx > 0 ? `
-                                    <button onclick="window.app.moveCategoryLeft('${cat}')" class="hidden sm:block pl-1.5 pr-1 py-1 hover:bg-gray-100 transition rounded-l-lg text-gray-400 hover:text-gray-600 border-r border-gray-100" title="向左移動">
-                                        <i data-lucide="chevron-left" class="lucide-icon w-3 h-3"></i>
-                                    </button>` : ''}
-                                    
-                                    <button 
-                                        onclick="window.app.setCategoryFilter('${cat}')"
-                                        class="px-2.5 py-1 text-sm font-medium transition duration-150 ${buttonClass} ${!isAll ? 'rounded-lg sm:rounded-none' : 'rounded-lg'}"
-                                    >
-                                        ${cat} <span class="text-xs opacity-70 ml-1">(${cat === '全部' ? samples.length : samples.filter(s => s.category === cat).length})</span>
-                                    </button>
-                                    
-                                    ${!isAll && idx < categories.length - 1 ? `
-                                    <button onclick="window.app.moveCategoryRight('${cat}')" class="hidden sm:block pr-1.5 pl-1 py-1 hover:bg-gray-100 transition rounded-r-lg text-gray-400 hover:text-gray-600 border-l border-gray-100" title="向右移動">
-                                        <i data-lucide="chevron-right" class="lucide-icon w-3 h-3"></i>
-                                    </button>` : ''}
-                                </div>
-                            `;
-                        }).join('')}
-                        
-                        <button 
-                            onclick="window.app.showAddCategoryModal()"
-                            class="px-2.5 py-1 text-sm font-semibold rounded-lg transition duration-150 bg-indigo-50 border border-indigo-300 text-indigo-700 hover:bg-indigo-200 hover:shadow-md flex items-center shadow-sm whitespace-nowrap flex-shrink-0"
-                        >
-                            <i data-lucide="plus" class="lucide-icon w-3 h-3 mr-1"></i>
-                            新增
-                        </button>
-                    </div>
-                </div>
-            `;
-
 
             if (filteredSamples.length === 0) {
                  if (samples.length === 0 && userId) {
@@ -1048,16 +1079,6 @@
                 <input type="text" id="new-title" class="w-full border border-gray-300 p-3 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 transition shadow-sm" placeholder="為這個作品取個名字...">
             </div>
             
-            <div class="mb-4">
-                <label class="block text-sm font-medium text-gray-700 mb-1">相關連結 (選填)</label>
-                <div class="relative">
-                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                        <i data-lucide="link" class="lucide-icon w-4 h-4 text-gray-400"></i>
-                    </div>
-                    <input type="text" id="new-link" class="w-full pl-10 border border-gray-300 p-3 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 transition shadow-sm" placeholder="https://...">
-                </div>
-            </div>
-            
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-1">中文內容 (Chinese)</label>
@@ -1096,9 +1117,9 @@
         </div>
     </div>
 
-    <div id="app-container" class="max-w-7xl mx-auto px-2 sm:px-4 lg:px-8 py-2 md:py-4">
+    <div id="app-container" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 md:py-8">
         
-        <div class="bg-white rounded-2xl shadow-xl p-3 md:p-4 mb-2 border-l-8 border-indigo-600 flex flex-col lg:flex-row justify-between items-center relative overflow-hidden">
+        <div class="bg-white rounded-2xl shadow-xl p-3 md:p-6 mb-4 border-l-8 border-indigo-600 flex flex-col lg:flex-row justify-between items-center relative overflow-hidden">
              <div class="absolute top-0 right-0 -mt-10 -mr-10 w-40 h-40 bg-indigo-50 rounded-full opacity-50 pointer-events-none hidden md:block"></div>
             
             <div class="z-10 w-full">
@@ -1140,13 +1161,13 @@
             </div>
         </div>
 
-        <div class="bg-white rounded-xl shadow-md p-2 mb-2 sticky top-1 z-30 bg-opacity-95 backdrop-blur-sm border border-gray-100">
-            <div id="filter-container" class="flex flex-col gap-1">
+        <div class="bg-white rounded-xl shadow-md p-3 md:p-4 mb-10 sticky top-2 md:top-4 z-30 bg-opacity-95 backdrop-blur-sm border border-gray-100">
+            <div id="filter-container" class="flex flex-col gap-2 md:gap-4">
                  <span class="text-gray-400 text-sm italic">載入篩選器中...</span>
             </div>
         </div>
 
-        <div id="samples-container" class="mt-2 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pb-10">
+        <div id="samples-container" class="mt-6 md:mt-10 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pb-10">
             <div class="col-span-full flex flex-col items-center justify-center py-20 text-gray-400 opacity-70">
                 <i data-lucide="loader" class="lucide-icon w-10 h-10 mb-3 animate-spin text-indigo-300"></i>
                 <p>正在載入您的作品...</p>
