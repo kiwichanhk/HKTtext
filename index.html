@@ -332,7 +332,7 @@
             }
         };
         
-        // [修改] 儲存樣本函數，增加 link 欄位
+        // [修改] 儲存樣本函數，增加 link 和 hidden_msg 欄位
         const saveSample = async (data) => {
             const colRef = getSamplesCollectionRef();
             if (!colRef) {
@@ -345,7 +345,8 @@
                     title: data.title,
                     content_ch: data.content_ch || '',
                     content_en: data.content_en || '',
-                    link: data.link || '', // [新增] 儲存連結
+                    link: data.link || '', 
+                    hidden_msg: data.hidden_msg || '', // [新增] 儲存隱藏信息
                     category: data.category,
                     member: data.member || '通用',
                     timestamp: serverTimestamp()
@@ -415,9 +416,13 @@
             document.getElementById('new-title').value = '';
             document.getElementById('new-content-ch').value = '';
             document.getElementById('new-content-en').value = '';
-            // [新增] 清空連結輸入框
+            // 清空連結輸入框
             const linkInput = document.getElementById('new-link');
             if(linkInput) linkInput.value = '';
+            
+            // [新增] 清空隱藏信息輸入框
+            const hiddenMsgInput = document.getElementById('new-hidden-msg');
+            if(hiddenMsgInput) hiddenMsgInput.value = '';
 
             document.getElementById('new-category').value = '未分類';
             document.getElementById('new-member').value = '通用'; 
@@ -507,7 +512,8 @@
                 const titleInput = sampleCard.querySelector('#edit-title');
                 const contentChInput = sampleCard.querySelector('#edit-content-ch');
                 const contentEnInput = sampleCard.querySelector('#edit-content-en');
-                const linkInput = sampleCard.querySelector('#edit-link'); // [新增]
+                const linkInput = sampleCard.querySelector('#edit-link'); 
+                const hiddenMsgInput = sampleCard.querySelector('#edit-hidden-msg'); // [新增]
                 const categorySelect = sampleCard.querySelector('#edit-category');
                 const memberSelect = sampleCard.querySelector('#edit-member');
 
@@ -524,7 +530,8 @@
                     title: titleInput.value,
                     content_ch: contentChInput.value,
                     content_en: finalContentEn,
-                    link: linkInput ? linkInput.value : '', // [新增]
+                    link: linkInput ? linkInput.value : '', 
+                    hidden_msg: hiddenMsgInput ? hiddenMsgInput.value : '', // [新增]
                     category: categorySelect.value,
                     member: memberSelect.value
                 };
@@ -612,7 +619,6 @@
         };
         
         // --- 6. 渲染與複製 ---
-        // [修改] 渲染卡片函數，加入連結按鈕邏輯
         const renderSampleCard = (sample) => {
             const date = sample.timestamp ? new Date(sample.timestamp.seconds * 1000).toLocaleString('zh-TW', {
                 year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit'
@@ -647,8 +653,10 @@
             const isEditing = activeEditId === sample.id;
             const displayContent = (sample.content_ch || "").trim().replace(/\n/g, '<br>');
             const isPinned = sample.isPinned || false;
-            // [新增] 檢查是否有連結
+            
+            // 檢查是否有連結與隱藏信息
             const hasLink = sample.link && sample.link.trim() !== '';
+            const hasHiddenMsg = sample.hidden_msg && sample.hidden_msg.trim() !== '';
 
             return `
                 <div id="sample-${sample.id}" class="bg-white p-6 rounded-xl shadow-lg hover:shadow-xl transition duration-300 flex flex-col h-full border-t-4 ${isPinned ? 'border-yellow-500 ring-4 ring-yellow-100' : 'border-indigo-500'}">
@@ -708,6 +716,9 @@
                             
                             <label class="text-xs font-bold text-gray-500 mt-2">相關連結 (URL)</label>
                             <input id="edit-link" value="${sample.link || ''}" class="w-full border border-gray-300 p-2 rounded-lg focus:ring-indigo-500" placeholder="https://example.com">
+                            
+                            <label class="text-xs font-bold text-gray-500 mt-2">隱藏信息</label>
+                            <input id="edit-hidden-msg" value="${sample.hidden_msg || ''}" class="w-full border border-gray-300 p-2 rounded-lg focus:ring-indigo-500" placeholder="備註或隱藏代碼">
                         </div>
 
                     ` : `
@@ -716,17 +727,28 @@
                         </div>
                     `}
                     
-                    ${!isEditing && hasLink ? `
-                        <div class="mt-auto mb-3 flex justify-end">
+                    ${!isEditing && (hasLink || hasHiddenMsg) ? `
+                        <div class="mt-auto mb-3 flex items-center justify-between flex-wrap gap-2">
+                            <div class="flex-grow">
+                                ${hasHiddenMsg ? `
+                                    <span class="inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800 border border-gray-200" title="隱藏信息">
+                                        <i data-lucide="eye-off" class="lucide-icon w-3 h-3 mr-1 text-gray-500"></i>
+                                        ${sample.hidden_msg}
+                                    </span>
+                                ` : ''}
+                            </div>
+                            
+                            ${hasLink ? `
                             <a href="${sample.link}" target="_blank" rel="noopener noreferrer" 
-                               class="inline-flex items-center px-4 py-2 bg-indigo-50 text-indigo-600 border border-indigo-200 rounded-lg hover:bg-indigo-100 hover:text-indigo-800 transition duration-150 text-sm font-medium shadow-sm">
+                               class="inline-flex items-center px-4 py-2 bg-indigo-50 text-indigo-600 border border-indigo-200 rounded-lg hover:bg-indigo-100 hover:text-indigo-800 transition duration-150 text-sm font-medium shadow-sm flex-shrink-0 ml-auto">
                                 <i data-lucide="link" class="lucide-icon w-4 h-4 mr-2"></i>
                                 開啟相關連結
                             </a>
+                            ` : ''}
                         </div>
                     ` : ''}
 
-                    <p class="text-xs text-gray-500 ${!isEditing && hasLink ? '' : 'mt-auto'} pt-2 border-t border-gray-100 flex justify-between items-center">
+                    <p class="text-xs text-gray-500 ${!isEditing && (hasLink || hasHiddenMsg) ? '' : 'mt-auto'} pt-2 border-t border-gray-100 flex justify-between items-center">
                          <span>最後編輯於: ${date}</span>
                          ${isPinned ? '<span class="px-2 py-0.5 bg-yellow-400 text-xs font-semibold rounded-full text-gray-800 flex items-center"><i data-lucide="pin" class="lucide-icon w-3 h-3 mr-1"></i>置頂中</span>' : ''}
                     </p>
@@ -738,7 +760,8 @@
             const titleInput = document.getElementById('new-title');
             const contentChInput = document.getElementById('new-content-ch');
             const contentEnInput = document.getElementById('new-content-en');
-            const linkInput = document.getElementById('new-link'); // [新增]
+            const linkInput = document.getElementById('new-link'); 
+            const hiddenMsgInput = document.getElementById('new-hidden-msg'); // [新增]
             const categorySelect = document.getElementById('new-category');
             const memberSelect = document.getElementById('new-member'); 
             
@@ -748,7 +771,8 @@
                 title: titleInput.value || '無標題樣本',
                 content_ch: contentChInput.value || '',
                 content_en: contentEnInput.value || '',
-                link: linkInput.value || '', // [新增]
+                link: linkInput.value || '', 
+                hidden_msg: hiddenMsgInput.value || '', // [新增]
                 category: category,
                 member: memberSelect.value 
             };
@@ -767,7 +791,8 @@
                 titleInput.value = '';
                 contentChInput.value = '';
                 contentEnInput.value = '';
-                linkInput.value = ''; // [新增]
+                linkInput.value = ''; 
+                hiddenMsgInput.value = ''; // [新增]
                 categorySelect.value = '未分類';
                 memberSelect.value = '通用';
                 hideAddSampleModal();
@@ -798,7 +823,7 @@
                 );
             }
 
-            // --- 渲染篩選器區域 (橫向捲動 + 手機隱藏箭頭) ---
+            // --- 渲染篩選器區域 ---
             
             const categories = getCategories();
             
@@ -832,7 +857,6 @@
                             const isAll = cat === '全部';
                             const buttonClass = currentCategoryFilter === cat ? 'bg-indigo-600 text-white' : 'text-gray-700 hover:bg-indigo-100';
                             
-                            // 注意: 使用 hidden sm:block 在手機上隱藏箭頭
                             return `
                                 <div class="inline-flex items-center bg-white rounded-lg shadow-sm border border-gray-200 hover:shadow-md transition-shadow flex-shrink-0 whitespace-nowrap">
                                     ${!isAll && idx > 0 ? `
@@ -1054,13 +1078,24 @@
                 <input type="text" id="new-title" class="w-full border border-gray-300 p-3 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 transition shadow-sm" placeholder="為這個作品取個名字...">
             </div>
             
-            <div class="mb-4">
-                <label class="block text-sm font-medium text-gray-700 mb-1">相關連結 (選填)</label>
-                <div class="relative">
-                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                        <i data-lucide="link" class="lucide-icon w-4 h-4 text-gray-400"></i>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">相關連結 (選填)</label>
+                    <div class="relative">
+                        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                            <i data-lucide="link" class="lucide-icon w-4 h-4 text-gray-400"></i>
+                        </div>
+                        <input type="text" id="new-link" class="w-full pl-10 border border-gray-300 p-3 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 transition shadow-sm" placeholder="https://...">
                     </div>
-                    <input type="text" id="new-link" class="w-full pl-10 border border-gray-300 p-3 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 transition shadow-sm" placeholder="https://...">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">隱藏信息 (選填)</label>
+                    <div class="relative">
+                        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                            <i data-lucide="eye-off" class="lucide-icon w-4 h-4 text-gray-400"></i>
+                        </div>
+                        <input type="text" id="new-hidden-msg" class="w-full pl-10 border border-gray-300 p-3 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 transition shadow-sm" placeholder="例如：密碼、備註...">
+                    </div>
                 </div>
             </div>
             
@@ -1102,7 +1137,7 @@
         </div>
     </div>
 
-    <div id="app-container" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 md:py-8">
+    <div id="app-container" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-2 pb-8">
         
         <div class="bg-white rounded-2xl shadow-xl p-3 md:p-6 mb-4 border-l-8 border-indigo-600 flex flex-col lg:flex-row justify-between items-center relative overflow-hidden">
              <div class="absolute top-0 right-0 -mt-10 -mr-10 w-40 h-40 bg-indigo-50 rounded-full opacity-50 pointer-events-none hidden md:block"></div>
