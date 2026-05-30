@@ -1,0 +1,1228 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"> 
+    <title>文字樣本與作品集</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&family=Noto+Sans+TC:wght@100..900&display=swap');
+        body {
+            font-family: 'Noto Sans TC', 'Inter', sans-serif;
+            background-color: #f7f7f9;
+        }
+        .sample-content {
+            white-space: pre-wrap; /* 保留換行和空格 */
+        }
+        /* Custom modal for alerts/prompts */
+        .custom-modal {
+            transition: opacity 0.3s ease-in-out;
+        }
+        .lucide {
+            width: 1.25rem;
+            height: 1.25rem;
+        }
+        /* 模態框動畫 */
+        .modal-content-transition {
+            transition: transform 0.3s ease-out;
+        }
+        
+        /* 讓篩選器可以橫向捲動且隱藏捲軸 (用於成員篩選) */
+        .filter-scroll {
+            overflow-x: auto;
+            display: flex;
+            flex-wrap: nowrap; /* 強制不換行 */
+            -ms-overflow-style: none; /* IE and Edge */
+            scrollbar-width: none; /* Firefox */
+            padding-bottom: 4px; /* 預留陰影空間 */
+        }
+        .filter-scroll::-webkit-scrollbar {
+            display: none; /* Chrome, Safari and Opera */
+        }
+
+        /* 手機版標題佈局調整 */
+        @media (max-width: 640px) {
+            .mobile-compact-header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 0.5rem;
+            }
+            .mobile-compact-actions {
+                width: 100%;
+                justify-content: flex-start;
+                flex-wrap: wrap;
+                gap: 0.5rem;
+            }
+        }
+    </style>
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
+        import { getFirestore, doc, addDoc, updateDoc, deleteDoc, onSnapshot, collection, query, getDocs, serverTimestamp, writeBatch } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+        import { getAnalytics } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-analytics.js";
+
+        
+        // --- 1. 設定檔與初始化 ---
+        const firebaseConfig = {
+          apiKey: "AIzaSyBnQmqGZQ_94BDgmZFzOJsKDjgYq8ipI2I",
+          authDomain: "hkttext.firebaseapp.com",
+          projectId: "hkttext",
+          storageBucket: "hkttext.firebasestorage.app",
+          messagingSenderId: "501339425536",
+          appId: "1:501339425536:web:f9ddbf080a002be99701e5",
+          measurementId: "G-CKY8VPMJXJ"
+        };
+
+        let app, db, auth, analytics, userId = null;
+        let originalAuthUid = null; 
+
+        const urlParams = new URLSearchParams(window.location.search);
+        const sharedUserId = urlParams.get('userId');
+
+        const getCustomUserId = () => localStorage.getItem('customUserId');
+        const setCustomUserId = (customId) => {
+            if (customId && customId.trim()) {
+                localStorage.setItem('customUserId', customId.trim());
+                return true;
+            }
+            return false;
+        };
+
+        const getOriginalAuthUid = () => localStorage.getItem('originalAuthUid');
+        const setOriginalAuthUid = (uid) => {
+            if (!getOriginalAuthUid()) localStorage.setItem('originalAuthUid', uid);
+        };
+        
+        let samples = [];
+        let currentCategoryFilter = '全部';
+        let searchTerm = '';
+        let activeEditId = null;
+        const appId = 'default-app-id';
+        
+        let members = JSON.parse(localStorage.getItem('hkt_members')) || ['通用']; 
+        let currentMemberFilter = '全部'; 
+
+        // 初始化 Firebase
+        try {
+            app = initializeApp(firebaseConfig);
+            analytics = getAnalytics(app);
+            auth = getAuth(app);
+            db = getFirestore(app);
+        } catch (error) {
+            console.error("Firebase init error:", error);
+            showModal('Firebase 初始化失敗', error.message, 'alert-octagon');
+        }
+
+        
+        // --- 2. 核心功能: 彈窗統一 ---
+
+        const hideModal = () => {
+            const modal = document.getElementById('custom-modal');
+            modal.classList.remove('opacity-100');
+            modal.classList.add('opacity-0', 'pointer-events-none');
+        };
+
+        const showModal = (title, message, icon = 'info') => {
+            const modal = document.getElementById('custom-modal');
+            document.getElementById('modal-title').textContent = title;
+            document.getElementById('modal-message').textContent = message;
+            
+            let iconColor = 'text-indigo-600';
+            if (icon === 'alert-triangle' || icon === 'alert-octagon') iconColor = 'text-red-500';
+            if (icon === 'check' || icon === 'check-circle') iconColor = 'text-green-500';
+            if (icon === 'pin') iconColor = 'text-yellow-600';
+
+            const iconHtml = `<i data-lucide="${icon}" class="lucide-icon ${iconColor} w-6 h-6 mr-2"></i>`;
+            document.getElementById('modal-icon-container').innerHTML = iconHtml;
+            lucide.createIcons();
+
+            modal.classList.remove('opacity-0', 'pointer-events-none');
+            modal.classList.add('opacity-100');
+
+            setTimeout(() => {
+                hideModal();
+            }, 5000);
+        };
+        
+        // --- 3. 認證與監聽 ---
+
+        const setupSearchListener = () => {
+            const input = document.getElementById('search-input');
+            if (input) {
+                input.addEventListener('input', (e) => {
+                    searchTerm = e.target.value;
+                    renderUI();
+                });
+            }
+        };
+
+        const signInAndListen = async () => {
+            if (!auth) return;
+            
+            onAuthStateChanged(auth, (user) => {
+                if (user) {
+                    originalAuthUid = user.uid;
+                    setOriginalAuthUid(user.uid);
+
+                    const customId = getCustomUserId();
+                    userId = sharedUserId || customId || user.uid;
+                    const isUsingCustomId = getCustomUserId() !== null;
+                    const isViewingShared = sharedUserId !== null;
+                    const displayId = userId.length > 12 ? userId.substring(0, 8) + '...' : userId;
+
+                    // 狀態列
+                    document.getElementById('auth-status').innerHTML = `
+                        <span class="hidden" id="actual-user-id">${userId}</span>
+                        ${isViewingShared ? '<span class="text-xs text-orange-600 bg-orange-50 px-2 py-1 rounded mr-1 font-medium whitespace-nowrap">👁️ 查看</span>' : ''}
+                        ${!isViewingShared ? `<button onclick="window.app.setCustomId()" class="text-xs ${isUsingCustomId ? 'text-green-600 bg-green-50 font-semibold' : 'text-gray-600 bg-gray-100'} px-2 py-1 rounded hover:bg-opacity-80 transition mr-1 whitespace-nowrap" title="${isUsingCustomId ? '點擊修改自訂ID' : '點擊設置自訂ID'}">
+                            🆔 ${isUsingCustomId ? displayId : 'ID'}
+                        </button>` : ''}
+                        <button onclick="window.app.copyShareLink()" class="text-xs text-indigo-600 hover:text-indigo-800 flex items-center bg-indigo-50 px-2 py-1 rounded hover:bg-indigo-100 transition mr-1 whitespace-nowrap" title="複製分享連結">
+                            <i data-lucide="share-2" class="lucide-icon w-3 h-3 mr-1"></i>
+                            分享
+                        </button>
+                        <span class="text-xs text-gray-500 flex items-center bg-gray-50 px-2 py-1 rounded whitespace-nowrap" title="已連接 Firebase 資料庫">
+                            <i data-lucide="database" class="lucide-icon w-3 h-3 mr-1 text-indigo-500"></i>
+                            連接
+                        </span>
+                    `;
+                    lucide.createIcons();
+                    
+                    renderUI();
+                    setupSearchListener();
+
+                    if (db) {
+                        listenForSamples();
+                        migrateDataIfNeeded();
+                    }
+                } else {
+                    signInAnonymously(auth).catch((error) => {
+                        console.error("Sign in failed:", error);
+                        showModal('認證錯誤', '無法登入: ' + error.message, 'alert-octagon');
+                    });
+                }
+            });
+        };
+
+        
+        // --- 4. Firestore 資料操作 (包含置頂與排序) ---
+
+        const migrateDataIfNeeded = async () => {
+            if (!db || !userId || !originalAuthUid) return;
+
+            const customId = getCustomUserId();
+            if (!customId || customId === originalAuthUid) return;
+
+            const customIdPath = collection(db, `artifacts/${appId}/users/${customId}/text_samples`);
+            const customIdSnapshot = await getDocs(query(customIdPath));
+
+            if (!customIdSnapshot.empty) return; 
+
+            const originalPath = collection(db, `artifacts/${appId}/users/${originalAuthUid}/text_samples`);
+            const originalSnapshot = await getDocs(query(originalPath));
+
+            if (originalSnapshot.empty) return;
+
+            let migratedCount = 0;
+            const batch = writeBatch(db);
+            for (const doc of originalSnapshot.docs) {
+                try {
+                    const data = doc.data();
+                    delete data.profile; 
+                    batch.set(doc(customIdPath), data);
+                    batch.delete(doc(originalPath, doc.id));
+                    migratedCount++;
+                } catch (e) { console.error(e); }
+            }
+            if (migratedCount > 0) {
+                await batch.commit();
+                showModal('數據已遷移', `已成功將 ${migratedCount} 筆文本遷移到新ID。`, 'check-circle');
+            }
+        };
+
+        const getSamplesCollectionRef = () => {
+            if (!userId || !db) return null;
+            return collection(db, `artifacts/${appId}/users/${userId}/text_samples`);
+        };
+
+        const listenForSamples = () => {
+            const colRef = getSamplesCollectionRef();
+            if (!colRef) return; 
+
+            const q = query(colRef);
+            
+            onSnapshot(q, (snapshot) => {
+                samples = snapshot.docs.map(doc => ({
+                    id: doc.id,
+                    ...doc.data()
+                }));
+                
+                const dbMembers = new Set(samples.map(s => s.member).filter(m => m));
+                let membersUpdated = false;
+                dbMembers.forEach(m => {
+                    if (!members.includes(m)) {
+                        members.push(m);
+                        membersUpdated = true;
+                    }
+                });
+                if (members.length === 0) members = ['通用'];
+                if (membersUpdated) {
+                    localStorage.setItem('hkt_members', JSON.stringify(members.filter(m => m !== '全部'))); 
+                }
+                
+                samples.sort((a, b) => {
+                    const isPinnedA = a.isPinned || false;
+                    const isPinnedB = b.isPinned || false;
+
+                    if (isPinnedA && !isPinnedB) return -1;
+                    if (!isPinnedA && isPinnedB) return 1;
+                    
+                    return (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0);
+                });
+                
+                renderUI(); 
+            }, (error) => {
+                console.error("Error listening to Firestore:", error);
+                showModal('錯誤', '無法連接到資料庫，請檢查您的網路連線。', 'alert-octagon');
+                renderUI(); 
+            });
+        };
+        
+        const togglePin = async (id) => {
+            const sample = samples.find(s => s.id === id);
+            if (!sample) return;
+            
+            const colRef = getSamplesCollectionRef();
+            if (!colRef) return;
+
+            const newPinStatus = !sample.isPinned;
+            
+            try {
+                await updateDoc(doc(colRef, id), {
+                    isPinned: newPinStatus
+                });
+                showModal('置頂成功', `樣本已${newPinStatus ? '置頂' : '取消置頂'}！`, newPinStatus ? 'pin' : 'pin-off');
+            } catch (error) {
+                showModal('錯誤', `置頂操作失敗: ${error.message}`, 'alert-octagon');
+            }
+        };
+
+        // ** [已更換為 Gemini API] 進行高質量文本翻譯 **
+        const translateToEnglish = async (text) => {
+            if (!text || !text.trim()) return '';
+            
+            const geminiApiKey = "AIzaSyC7WNg3glu9j3AyaIN0U_mtwx6_76vWRX0";
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiApiKey}`;
+            
+            try {
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        contents: [{
+                            parts: [{
+                                text: `你是一個專業的翻譯官。請精確、自然地將以下繁體中文內容翻譯成英文。請直接輸出翻譯後的英文結果，不要包含任何解釋、引號、備註或額外文本：\n\n${text}`
+                            }]
+                        }]
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data && data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts[0]) {
+                    return data.candidates[0].content.parts[0].text.trim();
+                } else {
+                    console.warn("Gemini API warning:", data);
+                    return `[翻譯服務忙碌] 請稍後再試。原因: 接收數據格式不正確。`;
+                }
+            } catch (error) {
+                console.error("Translation error:", error);
+                return "[翻譯失敗] 網絡連線或 API Key 錯誤，請檢查您的設定。";
+            }
+        };
+        
+        // [修改] 儲存樣本函數，增加 link 和 hidden_msg 欄位
+        const saveSample = async (data) => {
+            const colRef = getSamplesCollectionRef();
+            if (!colRef) {
+                showModal('錯誤', '資料庫服務尚未準備好。', 'alert-octagon');
+                return;
+            }
+
+            try {
+                const payload = {
+                    title: data.title,
+                    content_ch: data.content_ch || '',
+                    content_en: data.content_en || '',
+                    link: data.link || '', 
+                    hidden_msg: data.hidden_msg || '', // [新增] 儲存隱藏信息
+                    category: data.category,
+                    member: data.member || '通用',
+                    timestamp: serverTimestamp()
+                };
+
+                if (data.id) {
+                    const docRef = doc(colRef, data.id);
+                    await updateDoc(docRef, payload);
+                    showModal('成功', '樣本已成功更新！', 'check-circle');
+                } else {
+                    await addDoc(colRef, {
+                         ...payload,
+                         isPinned: false
+                    });
+                    showModal('成功', '新的文字樣本已建立！', 'plus-circle');
+                }
+            } catch (error) {
+                console.error("Error saving sample:", error);
+                showModal('錯誤', `儲存失敗: ${error.message}`, 'alert-octagon');
+            }
+        };
+
+        const deleteSample = async (id) => {
+            if (!id) return;
+            const colRef = getSamplesCollectionRef();
+            if (!colRef) return;
+
+            try {
+                const docRef = doc(colRef, id);
+                await deleteDoc(docRef);
+                showModal('刪除成功', '文字樣本已移除。', 'trash-2');
+            } catch (error) {
+                console.error("Error deleting sample:", error);
+                showModal('錯誤', `刪除失敗: ${error.message}`, 'alert-octagon');
+            }
+        };
+        
+        // --- 5. UI 輔助與模態框邏輯 ---
+        
+        const handleDeleteClick = (id) => {
+            const modal = document.getElementById('confirm-modal');
+            document.getElementById('confirm-message').textContent = '您確定要永久刪除此文字樣本嗎？此操作無法撤銷。';
+            
+            const confirmBtn = document.getElementById('confirm-action-btn');
+            confirmBtn.onclick = () => {
+                deleteSample(id);
+                hideConfirmModal();
+            };
+
+            modal.classList.remove('opacity-0', 'pointer-events-none');
+            modal.classList.add('opacity-100');
+        };
+
+        const hideConfirmModal = () => {
+            const modal = document.getElementById('confirm-modal');
+            modal.classList.remove('opacity-100');
+            modal.classList.add('opacity-0', 'pointer-events-none');
+        };
+
+        const showAddSampleModal = () => {
+            updateNewSampleCategoryOptions();
+            updateNewSampleMemberOptions(); 
+            const modal = document.getElementById('add-sample-modal');
+            modal.classList.remove('opacity-0', 'pointer-events-none');
+            modal.classList.add('opacity-100');
+            
+            document.getElementById('new-title').value = '';
+            document.getElementById('new-content-ch').value = '';
+            document.getElementById('new-content-en').value = '';
+            // 清空連結輸入框
+            const linkInput = document.getElementById('new-link');
+            if(linkInput) linkInput.value = '';
+            
+            // [新增] 清空隱藏信息輸入框
+            const hiddenMsgInput = document.getElementById('new-hidden-msg');
+            if(hiddenMsgInput) hiddenMsgInput.value = '';
+
+            document.getElementById('new-category').value = '未分類';
+            document.getElementById('new-member').value = '通用'; 
+            lucide.createIcons();
+        };
+
+        const hideAddSampleModal = () => {
+            const modal = document.getElementById('add-sample-modal');
+            modal.classList.remove('opacity-100');
+            modal.classList.add('opacity-0', 'pointer-events-none');
+        };
+        
+        const showAddCategoryModal = () => {
+            const modal = document.getElementById('add-category-modal');
+            document.getElementById('new-category-name').value = '';
+            modal.classList.remove('opacity-0', 'pointer-events-none');
+            modal.classList.add('opacity-100');
+            lucide.createIcons();
+        };
+
+        const hideAddCategoryModal = () => {
+            const modal = document.getElementById('add-category-modal');
+            modal.classList.remove('opacity-100');
+            modal.classList.add('opacity-0', 'pointer-events-none');
+        };
+
+        const addNewCategoryAndFilter = async () => {
+            const categoryNameInput = document.getElementById('new-category-name');
+            const newCategoryName = categoryNameInput.value.trim();
+
+            if (!newCategoryName) {
+                showModal('錯誤', '分類名稱不能為空。', 'alert-octagon');
+                return;
+            }
+            
+            const existingCategories = getCategories().filter(c => c !== '全部');
+            if (existingCategories.includes(newCategoryName)) {
+                showModal('注意', `分類 "${newCategoryName}" 已經存在。`, 'alert-triangle');
+                setCategoryFilter(newCategoryName);
+                hideAddCategoryModal();
+                return;
+            }
+
+            const placeholderSample = {
+                title: `新分類預留項目: ${newCategoryName}`,
+                content_ch: `這是為新分類「${newCategoryName}」建立的預留樣本。請編輯或刪除此項目。`,
+                content_en: '',
+                category: newCategoryName,
+                member: currentMemberFilter === '全部' ? '通用' : currentMemberFilter 
+            };
+
+            try {
+                await saveSample(placeholderSample);
+                setCategoryFilter(newCategoryName);
+                hideAddCategoryModal();
+                showModal('分類新增成功', `已建立新分類「${newCategoryName}」。`, 'folder-check');
+            } catch (error) {
+                showModal('錯誤', `無法新增分類: ${error.message}`, 'alert-octagon');
+            }
+        };
+        
+        const addNewMember = () => {
+            const name = prompt("請輸入新成員名稱：");
+            if (name && name.trim()) {
+                const clean = name.trim();
+                if (clean === '全部' || clean === '通用') { showModal('保留名稱', '此名稱保留，請使用其他名稱。', 'alert-triangle'); return; }
+                if (!members.includes(clean)) {
+                    members.push(clean);
+                    localStorage.setItem('hkt_members', JSON.stringify(members.filter(m => m !== '全部')));
+                    currentMemberFilter = clean; 
+                    renderUI();
+                    showModal('成功', `已新增成員「${clean}」`);
+                } else {
+                    showModal('注意', '成員已存在', 'alert-triangle');
+                }
+            }
+        };
+
+
+        const toggleEditMode = async (id) => {
+            const sampleCard = document.getElementById(`sample-${id}`);
+            if (!sampleCard) return;
+
+            const isCurrentlyEditing = activeEditId === id;
+
+            if (isCurrentlyEditing) {
+                const titleInput = sampleCard.querySelector('#edit-title');
+                const contentChInput = sampleCard.querySelector('#edit-content-ch');
+                const contentEnInput = sampleCard.querySelector('#edit-content-en');
+                const linkInput = sampleCard.querySelector('#edit-link'); 
+                const hiddenMsgInput = sampleCard.querySelector('#edit-hidden-msg'); // [新增]
+                const categorySelect = sampleCard.querySelector('#edit-category');
+                const memberSelect = sampleCard.querySelector('#edit-member');
+
+                let finalContentEn = contentEnInput.value;
+                
+                // 自動翻譯邏輯 (編輯時)
+                if (contentChInput.value.trim() && !finalContentEn.trim()) {
+                    showModal('Gemini 翻譯啟動', '偵測到中文內容，正在透過 Gemini 自動生成優質英文譯文...', 'globe');
+                    finalContentEn = await translateToEnglish(contentChInput.value);
+                }
+                
+                const updatedSample = {
+                    id: id,
+                    title: titleInput.value,
+                    content_ch: contentChInput.value,
+                    content_en: finalContentEn,
+                    link: linkInput ? linkInput.value : '', 
+                    hidden_msg: hiddenMsgInput ? hiddenMsgInput.value : '', // [新增]
+                    category: categorySelect.value,
+                    member: memberSelect.value
+                };
+                
+                saveSample(updatedSample);
+                activeEditId = null;
+
+            } else {
+                if (activeEditId) {
+                    activeEditId = null;
+                    renderUI(); 
+                }
+                activeEditId = id;
+            }
+            renderUI();
+        };
+
+        const setCategoryFilter = (category) => {
+            currentCategoryFilter = category;
+            renderUI();
+        };
+        
+        const setMemberFilter = (member) => {
+            currentMemberFilter = member;
+            renderUI();
+        }
+
+        const getCategories = () => {
+            const categorySet = new Set(samples.map(s => s.category).filter(c => c && c !== '未分類'));
+            let categories = [...Array.from(categorySet).sort(), '全部'];
+
+            const customOrder = JSON.parse(localStorage.getItem('hkt_category_order') || '[]');
+            if (customOrder.length > 0) {
+                const ordered = customOrder.filter(c => categories.includes(c));
+                const unordered = categories.filter(c => !customOrder.includes(c) && c !== '全部');
+                categories = [...ordered, ...unordered, '全部'];
+            }
+            return categories;
+        };
+        
+        const moveCategoryLeft = (cat) => {
+            const categories = getCategories().filter(c => c !== '全部'); 
+            const idx = categories.indexOf(cat);
+            if (idx > 0) {
+                [categories[idx], categories[idx-1]] = [categories[idx-1], categories[idx]];
+                localStorage.setItem('hkt_category_order', JSON.stringify(categories));
+                renderUI();
+            }
+        };
+
+        const moveCategoryRight = (cat) => {
+            const categories = getCategories().filter(c => c !== '全部'); 
+            const idx = categories.indexOf(cat);
+            if (idx < categories.length - 1 && idx !== -1) {
+                [categories[idx], categories[idx+1]] = [categories[idx+1], categories[idx]];
+                localStorage.setItem('hkt_category_order', JSON.stringify(categories));
+                renderUI();
+            }
+        };
+
+        const updateNewSampleCategoryOptions = () => {
+            const categories = getCategories();
+            const categorySelect = document.getElementById('new-category');
+            if (!categorySelect) return;
+
+            const categoryOptions = categories.filter(c => c !== '全部').map(cat => 
+                `<option value="${cat}">${cat}</option>`
+            ).join('');
+
+            categorySelect.innerHTML = `
+                <option value="未分類">未分類</option>
+                ${categoryOptions}
+            `;
+        };
+        
+        const updateNewSampleMemberOptions = () => {
+            const memberSelect = document.getElementById('new-member');
+            if (!memberSelect) return;
+            
+            const memberOptions = members.map(m => 
+                `<option value="${m}">${m}</option>`
+            ).join('');
+            
+            memberSelect.innerHTML = memberOptions;
+        };
+        
+        // --- 6. 渲染與複製 ---
+        const renderSampleCard = (sample) => {
+            const date = sample.timestamp ? new Date(sample.timestamp.seconds * 1000).toLocaleString('zh-TW', {
+                year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit'
+            }) : '尚未儲存';
+
+            const categories = getCategories();
+            const memberOptions = members.map(m => 
+                `<option value="${m}" ${sample.member === m ? 'selected' : ''}>${m}</option>`
+            ).join('');
+            
+            const categoryOptions = categories.filter(c => c !== '全部').map(cat => 
+                `<option value="${cat}" ${sample.category === cat ? 'selected' : ''}>${cat}</option>`
+            ).join('');
+            
+            if (!categories.includes(sample.category) && sample.category && sample.category !== '未分類') {
+                 categoryOptions.unshift(`<option value="${sample.category}" selected>${sample.category}</option>`);
+            }
+            
+            const editCategorySelect = `
+                <select id="edit-category" class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-indigo-500 focus:border-indigo-500 block w-full p-2.5">
+                    ${categoryOptions}
+                    <option value="未分類" ${sample.category === '未分類' || !sample.category ? 'selected' : ''}>未分類</option>
+                </select>
+            `;
+            
+            const editMemberSelect = `
+                <select id="edit-member" class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-indigo-500 focus:border-indigo-500 block w-full p-2.5">
+                    ${memberOptions}
+                </select>
+            `;
+
+            const isEditing = activeEditId === sample.id;
+            const displayContent = (sample.content_ch || "").trim().replace(/\n/g, '<br>');
+            const isPinned = sample.isPinned || false;
+            
+            // 檢查是否有連結與隱藏信息
+            const hasLink = sample.link && sample.link.trim() !== '';
+            const hasHiddenMsg = sample.hidden_msg && sample.hidden_msg.trim() !== '';
+
+            return `
+                <div id="sample-${sample.id}" class="bg-white p-6 rounded-xl shadow-lg hover:shadow-xl transition duration-300 flex flex-col h-full border-t-4 ${isPinned ? 'border-yellow-500 ring-4 ring-yellow-100' : 'border-indigo-500'}">
+                    <div class="flex justify-between items-start mb-4">
+                        ${isEditing ? `
+                            <input id="edit-title" value="${sample.title}" class="text-xl font-bold text-gray-800 w-full border-b border-gray-300 p-1 mb-2 focus:outline-none focus:border-indigo-500">
+                        ` : `
+                            <h3 class="text-xl font-bold text-gray-800">${sample.title}</h3>
+                        `}
+                        <div class="flex-shrink-0 ml-4 flex space-x-2">
+                             <button onclick="window.app.togglePin('${sample.id}')" class="${isPinned ? 'text-yellow-600 bg-yellow-100 hover:bg-yellow-200' : 'text-gray-400 bg-gray-100 hover:bg-gray-200'} p-2 rounded-full shadow-md transition duration-150" title="${isPinned ? '取消置頂' : '置頂'}">
+                                <i data-lucide="pin" class="lucide-icon w-4 h-4 ${isPinned ? 'fill-yellow-600' : ''}"></i>
+                            </button>
+                            
+                            ${!isEditing ? `
+                            <button onclick="window.app.copyText('${sample.id}', 'ch')" class="text-white bg-blue-400 hover:bg-blue-500 p-2 rounded-full shadow-md transition duration-150" title="複製中文">
+                                <i data-lucide="copy" class="lucide-icon w-4 h-4"></i>
+                            </button>
+                            <button onclick="window.app.copyText('${sample.id}', 'en')" class="text-white bg-green-400 hover:bg-green-500 p-2 rounded-full shadow-md transition duration-150" title="複製英文">
+                                <i data-lucide="languages" class="lucide-icon w-4 h-4"></i>
+                            </button>
+                            ` : ''}
+                            
+                            <button onclick="window.app.toggleEditMode('${sample.id}')" class="text-white ${isEditing ? 'bg-green-500 hover:bg-green-600' : 'bg-indigo-500 hover:bg-indigo-600'} p-2 rounded-full shadow-md transition duration-150">
+                                <i data-lucide="${isEditing ? 'save' : 'edit'}" class="lucide-icon w-4 h-4"></i>
+                            </button>
+                            ${isEditing ? '' : `
+                                <button onclick="window.app.handleDeleteClick('${sample.id}')" class="text-white bg-red-500 hover:bg-red-600 p-2 rounded-full shadow-md transition duration-150">
+                                    <i data-lucide="trash-2" class="lucide-icon w-4 h-4"></i>
+                                </button>
+                            `}
+                        </div>
+                    </div>
+
+                    <div class="mb-4 flex flex-wrap gap-2 items-center">
+                        <span class="text-sm font-medium text-purple-600 flex items-center">
+                            <i data-lucide="user" class="lucide-icon w-4 h-4 mr-1"></i>
+                            ${isEditing ? editMemberSelect : `
+                                <span class="px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-xs font-semibold">${sample.member || '通用'}</span>
+                            `}
+                        </span>
+                        <span class="text-sm font-medium text-indigo-600 flex items-center">
+                            <i data-lucide="tag" class="lucide-icon w-4 h-4 mr-1"></i>
+                            ${isEditing ? editCategorySelect : `
+                                <span class="px-3 py-1 bg-indigo-100 text-indigo-700 rounded-full text-xs font-semibold">${sample.category || '未分類'}</span>
+                            `}
+                        </span>
+                    </div>
+                    
+                    ${isEditing ? `
+                        
+                        <div class="flex flex-col space-y-2 h-96">
+                            <label class="text-xs font-bold text-gray-500">中文內容</label>
+                            <textarea id="edit-content-ch" class="flex-grow w-full border border-gray-300 p-2 rounded-lg resize-none focus:ring-indigo-500">${sample.content_ch || ''}</textarea>
+                            <label class="text-xs font-bold text-gray-500">英文內容 (自動翻譯)</label>
+                            <textarea id="edit-content-en" class="flex-grow w-full border border-gray-300 p-2 rounded-lg resize-none focus:ring-indigo-500">${sample.content_en || ''}</textarea>
+                            
+                            <label class="text-xs font-bold text-gray-500 mt-2">相關連結 (URL)</label>
+                            <input id="edit-link" value="${sample.link || ''}" class="w-full border border-gray-300 p-2 rounded-lg focus:ring-indigo-500" placeholder="https://example.com">
+                            
+                            <label class="text-xs font-bold text-gray-500 mt-2">隱藏信息</label>
+                            <input id="edit-hidden-msg" value="${sample.hidden_msg || ''}" class="w-full border border-gray-300 p-2 rounded-lg focus:ring-indigo-500" placeholder="備註或隱藏代碼">
+                        </div>
+
+                    ` : `
+                        <div class="flex-grow text-gray-700 sample-content overflow-auto mb-4 border p-3 rounded-lg bg-gray-50 max-h-64">
+                            ${displayContent}
+                        </div>
+                    `}
+                    
+                    ${!isEditing && (hasLink || hasHiddenMsg) ? `
+                        <div class="mt-auto mb-3 flex items-center justify-between flex-wrap gap-2">
+                            <div class="flex-grow">
+                                ${hasHiddenMsg ? `
+                                    <span class="inline-flex items-center px-2.5 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800 border border-gray-200" title="隱藏信息">
+                                        <i data-lucide="eye-off" class="lucide-icon w-3 h-3 mr-1 text-gray-500"></i>
+                                        ${sample.hidden_msg}
+                                    </span>
+                                ` : ''}
+                            </div>
+                            
+                            ${hasLink ? `
+                            <a href="${sample.link}" target="_blank" rel="noopener noreferrer" 
+                               class="inline-flex items-center px-4 py-2 bg-indigo-50 text-indigo-600 border border-indigo-200 rounded-lg hover:bg-indigo-100 hover:text-indigo-800 transition duration-150 text-sm font-medium shadow-sm flex-shrink-0 ml-auto">
+                                <i data-lucide="link" class="lucide-icon w-4 h-4 mr-2"></i>
+                                開啟相關連結
+                            </a>
+                            ` : ''}
+                        </div>
+                    ` : ''}
+
+                    <p class="text-xs text-gray-500 ${!isEditing && (hasLink || hasHiddenMsg) ? '' : 'mt-auto'} pt-2 border-t border-gray-100 flex justify-between items-center">
+                         <span>最後編輯於: ${date}</span>
+                         ${isPinned ? '<span class="px-2 py-0.5 bg-yellow-400 text-xs font-semibold rounded-full text-gray-800 flex items-center"><i data-lucide="pin" class="lucide-icon w-3 h-3 mr-1"></i>置頂中</span>' : ''}
+                    </p>
+                </div>
+            `;
+        };
+        
+        const createNewSample = async () => {
+            const titleInput = document.getElementById('new-title');
+            const contentChInput = document.getElementById('new-content-ch');
+            const contentEnInput = document.getElementById('new-content-en');
+            const linkInput = document.getElementById('new-link'); 
+            const hiddenMsgInput = document.getElementById('new-hidden-msg'); // [新增]
+            const categorySelect = document.getElementById('new-category');
+            const memberSelect = document.getElementById('new-member'); 
+            
+            let category = categorySelect.value;
+            
+            const newSample = {
+                title: titleInput.value || '無標題樣本',
+                content_ch: contentChInput.value || '',
+                content_en: contentEnInput.value || '',
+                link: linkInput.value || '', 
+                hidden_msg: hiddenMsgInput.value || '', // [新增]
+                category: category,
+                member: memberSelect.value 
+            };
+
+            if (!newSample.content_ch.trim() && !newSample.content_en.trim()) {
+                showModal('注意', '中文和英文內容不能同時為空！', 'alert-triangle');
+                return;
+            }
+            
+            if (newSample.content_ch.trim() && !newSample.content_en.trim()) {
+                showModal('Gemini 翻譯啟動', '偵測到中文內容，正在透過 Gemini 自動生成優質英文譯文...', 'globe');
+                newSample.content_en = await translateToEnglish(newSample.content_ch);
+            }
+
+            saveSample(newSample).then(() => {
+                titleInput.value = '';
+                contentChInput.value = '';
+                contentEnInput.value = '';
+                linkInput.value = ''; 
+                hiddenMsgInput.value = ''; // [新增]
+                categorySelect.value = '未分類';
+                memberSelect.value = '通用';
+                hideAddSampleModal();
+            });
+        };
+
+        const renderUI = () => {
+            const samplesContainer = document.getElementById('samples-container');
+            const filterContainer = document.getElementById('filter-container');
+            
+            if (!samplesContainer || !filterContainer) return;
+            
+            // --- 篩選邏輯 ---
+            let filteredSamples = samples;
+            if (currentMemberFilter !== '全部') {
+                filteredSamples = filteredSamples.filter(s => s.member === currentMemberFilter);
+            }
+            if (currentCategoryFilter !== '全部') {
+                filteredSamples = filteredSamples.filter(s => s.category === currentCategoryFilter);
+            }
+
+            const lowerTerm = searchTerm ? searchTerm.toLowerCase().trim() : '';
+            if (lowerTerm) {
+                filteredSamples = filteredSamples.filter(s => 
+                    (s.title && s.title.toLowerCase().includes(lowerTerm)) || 
+                    (s.content_ch && s.content_ch.toLowerCase().includes(lowerTerm)) || 
+                    (s.content_en && s.content_en.toLowerCase().includes(lowerTerm))
+                );
+            }
+
+            // --- 渲染篩選器區域 ---
+            
+            const categories = getCategories();
+            
+            const createFilterBtn = (text, isActive, onClick, isAdd = false) => `
+                <button 
+                    onclick="${onClick}"
+                    class="px-3 py-1.5 text-sm font-semibold rounded-lg transition duration-150 whitespace-nowrap flex items-center flex-shrink-0
+                    ${isAdd 
+                        ? 'bg-indigo-50 border border-indigo-300 text-indigo-700 hover:bg-indigo-200 shadow-sm' 
+                        : (isActive ? 'bg-indigo-600 text-white shadow-md' : 'bg-white text-gray-700 border border-gray-200 hover:bg-indigo-50 shadow-sm')}"
+                >
+                    ${isAdd ? '<i data-lucide="plus" class="w-3 h-3 mr-1"></i>' : ''}
+                    ${text}
+                </button>
+            `;
+
+            filterContainer.innerHTML = `
+                <div class="flex flex-col gap-1 pb-2 border-b border-gray-100">
+                    <span class="text-xs font-bold text-gray-500 mr-2 uppercase tracking-wider flex-shrink-0 whitespace-nowrap">成員篩選</span>
+                    <div class="filter-scroll w-full gap-2">
+                        ${createFilterBtn('全部', currentMemberFilter === '全部', "window.app.setMemberFilter('全部')")}
+                        ${members.map(m => createFilterBtn(m, currentMemberFilter === m, `window.app.setMemberFilter('${m}')`)).join('')}
+                        ${createFilterBtn('新增成員', false, "window.app.addNewMember()", true)}
+                    </div>
+                </div>
+
+                <div class="flex flex-col gap-1 pt-1">
+                    <span class="text-xs font-bold text-gray-500 mr-2 uppercase tracking-wider flex-shrink-0 whitespace-nowrap">分類篩選</span>
+                    <div class="flex flex-wrap w-full gap-2 pb-1">
+                        ${categories.map((cat, idx) => {
+                            const isAll = cat === '全部';
+                            const buttonClass = currentCategoryFilter === cat ? 'bg-indigo-600 text-white' : 'text-gray-700 hover:bg-indigo-100';
+                            
+                            return `
+                                <div class="inline-flex items-center bg-white rounded-lg shadow-sm border border-gray-200 hover:shadow-md transition-shadow flex-shrink-0 whitespace-nowrap">
+                                    ${!isAll && idx > 0 ? `
+                                    <button onclick="window.app.moveCategoryLeft('${cat}')" class="hidden sm:block pl-2 pr-1 py-1.5 hover:bg-gray-100 transition rounded-l-lg text-gray-400 hover:text-gray-600 border-r border-gray-100" title="向左移動">
+                                        <i data-lucide="chevron-left" class="lucide-icon w-3 h-3"></i>
+                                    </button>` : ''}
+                                    
+                                    <button 
+                                        onclick="window.app.setCategoryFilter('${cat}')"
+                                        class="px-3 py-1.5 text-sm font-medium transition duration-150 ${buttonClass} ${!isAll ? 'rounded-lg sm:rounded-none' : 'rounded-lg'}"
+                                    >
+                                        ${cat} <span class="text-xs opacity-70 ml-1">(${cat === '全部' ? samples.length : samples.filter(s => s.category === cat).length})</span>
+                                    </button>
+                                    
+                                    ${!isAll && idx < categories.length - 1 ? `
+                                    <button onclick="window.app.moveCategoryRight('${cat}')" class="hidden sm:block pr-2 pl-1 py-1.5 hover:bg-gray-100 transition rounded-r-lg text-gray-400 hover:text-gray-600 border-l border-gray-100" title="向右移動">
+                                        <i data-lucide="chevron-right" class="lucide-icon w-3 h-3"></i>
+                                    </button>` : ''}
+                                </div>
+                            `;
+                        }).join('')}
+                        
+                        <button 
+                            onclick="window.app.showAddCategoryModal()"
+                            class="px-3 py-1.5 text-sm font-semibold rounded-lg transition duration-150 bg-indigo-50 border border-indigo-300 text-indigo-700 hover:bg-indigo-200 hover:shadow-md flex items-center shadow-sm whitespace-nowrap flex-shrink-0"
+                        >
+                            <i data-lucide="plus" class="lucide-icon w-3 h-3 mr-1"></i>
+                            新增
+                        </button>
+                    </div>
+                </div>
+            `;
+
+
+            if (filteredSamples.length === 0) {
+                 if (samples.length === 0 && userId) {
+                     samplesContainer.innerHTML = `
+                        <div class="col-span-full text-center py-10 bg-white rounded-xl shadow-inner text-gray-500">
+                            <i data-lucide="book-open" class="lucide-icon w-12 h-12 mx-auto mb-4 text-gray-300"></i>
+                            <p class="text-lg">目前沒有任何文字樣本。</p>
+                            <p class="text-sm">點擊右上角的「新增文字樣本」按鈕開始創建吧！</p>
+                        </div>
+                    `;
+                } else if (!userId) {
+                    samplesContainer.innerHTML = `
+                        <div class="col-span-full text-center py-10 text-gray-400">
+                            <i data-lucide="loader" class="lucide-icon w-8 h-8 mx-auto mb-2 animate-spin"></i>
+                            <p>正在載入您的作品...</p>
+                        </div>
+                    `;
+                } else {
+                     samplesContainer.innerHTML = `
+                        <div class="col-span-full text-center py-10 bg-white rounded-xl shadow-inner text-gray-500">
+                            <i data-lucide="folder-open" class="lucide-icon w-12 h-12 mx-auto mb-4 text-gray-300"></i>
+                            <p class="text-lg">沒有符合條件的樣本。</p>
+                            <p class="text-sm">篩選條件: 成員 ${currentMemberFilter} | 分類 ${currentCategoryFilter}</p>
+                            <button onclick="window.app.setMemberFilter('全部'); window.app.setCategoryFilter('全部');" class="mt-2 text-indigo-600 hover:underline">
+                                清除所有篩選
+                            </button>
+                        </div>
+                    `;
+                }
+            } else {
+                samplesContainer.innerHTML = filteredSamples.map(renderSampleCard).join('');
+            }
+            
+            lucide.createIcons();
+        };
+
+        // --- 7. 暴露給 Window ---
+        window.app = {
+            moveCategoryLeft,
+            moveCategoryRight,
+            togglePin,
+            copyText: (id, lang) => {
+                const sample = samples.find(s => s.id === id);
+                if(!sample) return;
+                const text = lang === 'ch' ? sample.content_ch : sample.content_en;
+                
+                if(!text || !text.trim()) {
+                    showModal('內容為空', '該語言內容為空，請先編輯！', 'alert-triangle');
+                    return;
+                }
+                
+                navigator.clipboard.writeText(text).then(() => {
+                    showModal('複製成功', (lang==='ch'?'中文':'英文') + '內容已複製到剪貼簿', 'check');
+                    setTimeout(() => window.app.hideModal(), 1500);
+                });
+            },
+
+            setCategoryFilter,
+            setMemberFilter, 
+            addNewMember,
+            toggleEditMode,
+            createNewSample,
+            handleDeleteClick,
+            hideConfirmModal,
+            setCustomId: async () => {
+                const currentCustomId = getCustomUserId();
+                const currentMessage = currentCustomId 
+                    ? `當前自訂ID：${currentCustomId}\n\n輸入新ID來更改，或留空取消：` 
+                    : '設置一個簡短的自訂ID（例如：kiwi123）\n\n這樣分享連結會更短更好記！\n\n⚠️ 設置後會自動遷移您的所有文本。';
+
+                const newId = prompt(currentMessage, currentCustomId || '');
+
+                if (newId === null) return;
+
+                if (newId.trim() === '') {
+                    if (currentCustomId) {
+                        showModal('提示', '如需刪除自訂ID，請直接使用原始ID分享連結。', 'info');
+                    }
+                    return;
+                }
+
+                if (!/^[a-zA-Z0-9_]{3,20}$/.test(newId.trim())) {
+                    showModal('格式錯誤', 'ID只能包含英文、數字和底線，長度3-20字符。', 'alert-octagon');
+                    return;
+                }
+
+                if (setCustomUserId(newId)) {
+                    showModal('設置成功', `自訂ID已設置為：${newId}\n\n正在重新載入頁面並遷移數據...`, 'check-circle');
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 1500);
+                }
+            },
+
+            copyShareLink: () => {
+                const currentUserId = sharedUserId || userId;
+                const shareUrl = `${window.location.origin}${window.location.pathname}?userId=${currentUserId}`;
+
+                navigator.clipboard.writeText(shareUrl).then(() => {
+                    showModal('分享連結已複製 📋', `您可以將此連結分享給其他設備：\n\n${shareUrl}`, 'share-2');
+                }).catch(err => {
+                    showModal('分享連結', `請複製以下連結：\n\n${shareUrl}`, 'share-2');
+                });
+            },
+
+            showAddSampleModal,
+            hideAddSampleModal,
+            showAddCategoryModal,
+            hideAddCategoryModal,
+            addNewCategoryAndFilter,
+            hideModal, 
+            saveSample,
+            renderUI,
+        };
+        
+        window.onload = () => {
+            if (auth && db) {
+                signInAndListen();
+            } else {
+                console.warn("Firebase 未成功初始化，跳過認證流程。");
+            }
+        };
+
+    </script>
+</head>
+<body class="bg-gray-50 min-h-screen">
+
+    
+    <div id="custom-modal" class="custom-modal fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 opacity-0 pointer-events-none">
+        <div class="bg-white p-6 rounded-xl shadow-2xl max-w-sm w-full transform transition-all duration-300 scale-95" onclick="event.stopPropagation()">
+            <div class="flex items-center mb-4">
+                <span id="modal-icon-container" class="flex items-center justify-center"></span>
+                <h3 id="modal-title" class="text-lg font-bold text-gray-800">訊息</h3>
+                <button onclick="window.app.hideModal()" class="ml-auto text-gray-400 hover:text-gray-600">
+                    <i data-lucide="x" class="lucide-icon w-5 h-5"></i>
+                </button>
+            </div>
+            <p id="modal-message" class="text-gray-600 mb-4"></p>
+            <div class="flex justify-end">
+                <button onclick="window.app.hideModal()" class="px-4 py-2 bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 transition duration-150">確定</button>
+            </div>
+        </div>
+    </div>
+    
+    <div id="confirm-modal" class="custom-modal fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 opacity-0 pointer-events-none">
+        <div class="bg-white p-6 rounded-xl shadow-2xl max-w-sm w-full transform transition-all duration-300 scale-95" onclick="event.stopPropagation()">
+            <div class="flex items-center mb-4">
+                <i data-lucide="alert-triangle" class="lucide-icon text-red-500 w-6 h-6 mr-2"></i>
+                <h3 class="text-lg font-bold text-gray-800">確認操作</h3>
+            </div>
+            <p id="confirm-message" class="text-gray-700 mb-6"></p>
+            <div class="flex justify-end space-x-3">
+                <button onclick="window.app.hideConfirmModal()" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition duration-150">取消</button>
+                <button id="confirm-action-btn" class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition duration-150">確認刪除</button>
+            </div>
+        </div>
+    </div>
+    
+    <div id="add-sample-modal" class="custom-modal fixed inset-0 z-40 flex items-center justify-center bg-black bg-opacity-70 opacity-0 pointer-events-none" onclick="window.app.hideAddSampleModal()">
+        <div class="bg-white p-6 rounded-xl shadow-2xl max-w-xl lg:max-w-4xl w-full max-h-[90vh] overflow-y-auto transform transition-all duration-300 modal-content-transition scale-90" onclick="event.stopPropagation()">
+            <div class="flex justify-between items-center mb-4 border-b pb-3">
+                <h2 class="text-2xl font-extrabold text-indigo-800 flex items-center">
+                    <i data-lucide="pen-tool" class="lucide-icon w-6 h-6 mr-2"></i>
+                    新增文字樣本
+                </h2>
+                <button onclick="window.app.hideAddSampleModal()" class="text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-100">
+                    <i data-lucide="x" class="lucide-icon w-6 h-6"></i>
+                </button>
+            </div>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                 <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">成員歸屬</label>
+                    <select id="new-member" class="w-full border border-gray-300 p-3 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 transition shadow-sm bg-white">
+                        </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">分類</label>
+                    <select id="new-category" class="w-full border border-gray-300 p-3 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 transition shadow-sm bg-white">
+                        </select>
+                </div>
+            </div>
+
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-gray-700 mb-1">標題</label>
+                <input type="text" id="new-title" class="w-full border border-gray-300 p-3 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 transition shadow-sm" placeholder="為這個作品取個名字...">
+            </div>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">相關連結 (選填)</label>
+                    <div class="relative">
+                        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                            <i data-lucide="link" class="lucide-icon w-4 h-4 text-gray-400"></i>
+                        </div>
+                        <input type="text" id="new-link" class="w-full pl-10 border border-gray-300 p-3 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 transition shadow-sm" placeholder="https://...">
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">隱藏信息 (選填)</label>
+                    <div class="relative">
+                        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                            <i data-lucide="eye-off" class="lucide-icon w-4 h-4 text-gray-400"></i>
+                        </div>
+                        <input type="text" id="new-hidden-msg" class="w-full pl-10 border border-gray-300 p-3 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 transition shadow-sm" placeholder="例如：密碼、備註...">
+                    </div>
+                </div>
+            </div>
+            
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">中文內容 (Chinese)</label>
+                    <textarea id="new-content-ch" class="w-full h-64 border border-gray-300 p-3 rounded-lg resize-none focus:ring-indigo-500 focus:border-indigo-500 transition shadow-sm" placeholder="在這裡輸入或貼上您的文字內容..."></textarea>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">英文內容 (English) <span class="text-xs text-indigo-500 font-normal">(留空將自動 AI 翻譯)</span></label>
+                    <textarea id="new-content-en" class="w-full h-64 border border-gray-300 p-3 rounded-lg resize-none focus:ring-indigo-500 focus:border-indigo-500 transition shadow-sm" placeholder="Enter or paste your English text here..."></textarea>
+                </div>
+            </div>
+
+            <div class="flex justify-end mt-6 pt-4 border-t border-gray-100 space-x-3">
+                <button onclick="window.app.hideAddSampleModal()" class="px-5 py-2 bg-white border border-gray-300 text-gray-700 rounded-full hover:bg-gray-50 transition duration-150 font-medium">取消</button>
+                <button onclick="window.app.createNewSample()" class="px-6 py-2 bg-indigo-600 text-white rounded-full hover:bg-indigo-700 transition duration-150 shadow-md flex items-center font-medium">
+                    <i data-lucide="save" class="lucide-icon w-4 h-4 mr-2"></i>
+                    儲存樣本
+                </button>
+            </div>
+        </div>
+    </div>
+    
+    <div id="add-category-modal" class="custom-modal fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 opacity-0 pointer-events-none">
+        <div class="bg-white p-6 rounded-xl shadow-2xl max-w-sm w-full transform transition-all duration-300 scale-95" onclick="event.stopPropagation()">
+             <div class="flex justify-between items-center mb-4">
+                <h3 class="text-lg font-bold text-gray-800">新增分類</h3>
+                <button onclick="window.app.hideAddCategoryModal()" class="text-gray-400 hover:text-gray-600">
+                    <i data-lucide="x" class="lucide-icon w-5 h-5"></i>
+                </button>
+            </div>
+            <p class="text-sm text-gray-600 mb-4">請輸入新分類的名稱：</p>
+            <input type="text" id="new-category-name" class="w-full border border-gray-300 p-2 rounded-lg mb-4 focus:ring-indigo-500 focus:border-indigo-500" placeholder="例如：會議記錄">
+            <div class="flex justify-end space-x-2">
+                <button onclick="window.app.hideAddCategoryModal()" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition duration-150">取消</button>
+                <button onclick="window.app.addNewCategoryAndFilter()" class="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition duration-150">新增並切換</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="app-container" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-2 pb-8">
+        
+        <div class="bg-white rounded-2xl shadow-xl p-3 md:p-6 mb-4 border-l-8 border-indigo-600 flex flex-col lg:flex-row justify-between items-center relative overflow-hidden">
+             <div class="absolute top-0 right-0 -mt-10 -mr-10 w-40 h-40 bg-indigo-50 rounded-full opacity-50 pointer-events-none hidden md:block"></div>
+            
+            <div class="z-10 w-full">
+                <div class="flex flex-col md:flex-row md:items-center justify-between gap-2 md:gap-4 mb-2">
+                    <div class="flex justify-between items-center">
+                        <h1 class="text-xl md:text-4xl font-extrabold text-gray-900 tracking-tight">KIWI QUICK TEXT</h1>
+                    </div>
+
+                    <div class="flex flex-wrap items-center justify-start md:justify-end gap-2 mt-1 md:mt-0 mobile-compact-actions">
+                        <div id="auth-status" class="flex items-center flex-wrap gap-1 text-sm text-gray-500">
+                            <i data-lucide="loader" class="lucide-icon w-4 h-4 animate-spin text-indigo-500"></i>
+                            <span>連接中...</span>
+                        </div>
+
+                        <button 
+                            onclick="window.app.showAddSampleModal()" 
+                            class="px-3 py-1.5 md:px-6 md:py-3 bg-green-600 hover:bg-green-700 text-white font-bold rounded-full shadow-lg hover:shadow-xl transition flex items-center whitespace-nowrap text-sm md:text-base"
+                        >
+                            <i data-lucide="plus" class="w-4 h-4 md:w-5 md:h-5 mr-1 md:mr-2"></i>
+                            <span class="hidden md:inline">新增文字樣本</span>
+                            <span class="md:hidden">新增</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="mb-1">
+                    <div class="relative max-w-full">
+                        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                            <i data-lucide="search" class="w-5 h-5 text-gray-400"></i>
+                        </div>
+                        <input 
+                            type="text" 
+                            id="search-input"
+                            class="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-xl leading-5 bg-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition shadow-sm text-sm md:text-base"
+                            placeholder="搜尋樣本標題或內容..."
+                        >
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="bg-white rounded-xl shadow-md p-3 md:p-4 mb-10 border border-gray-100">
+            <div id="filter-container" class="flex flex-col gap-2 md:gap-4">
+                 <span class="text-gray-400 text-sm italic">載入篩選器中...</span>
+            </div>
+        </div>
+
+        <div id="samples-container" class="mt-6 md:mt-10 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pb-10">
+            <div class="col-span-full flex flex-col items-center justify-center py-20 text-gray-400 opacity-70">
+                <i data-lucide="loader" class="lucide-icon w-10 h-10 mb-3 animate-spin text-indigo-300"></i>
+                <p>正在載入您的作品...</p>
+            </div>
+        </div>
+    </div>
+
+    <button id="back-to-top" onclick="window.scrollTo({top: 0, behavior: 'smooth'})" class="fixed bottom-6 right-6 bg-indigo-600 text-white p-3 rounded-full shadow-lg hover:bg-indigo-700 transition-all duration-300 z-50 opacity-0 pointer-events-none translate-y-10">
+        <i data-lucide="arrow-up" class="lucide-icon w-6 h-6"></i>
+    </button>
+
+    <script>
+        window.addEventListener('scroll', () => {
+            const btn = document.getElementById('back-to-top');
+            if (window.scrollY > 300) {
+                // 滾動超過 300px 顯示
+                btn.classList.remove('opacity-0', 'pointer-events-none', 'translate-y-10');
+            } else {
+                // 否則隱藏
+                btn.classList.add('opacity-0', 'pointer-events-none', 'translate-y-10');
+            }
+        });
+    </script>
+
+</body>
+</html>
