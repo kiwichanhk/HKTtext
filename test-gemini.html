@@ -308,11 +308,12 @@
             }
         };
 
-        // ** [修正版 Gemini API] 加上嚴格的安全解析防禦，防止格式不正確導致報錯 **
+        // ** [已修正網址路徑] 確保 v1beta 正確對接 models/gemini-1.5-flash **
         const translateToEnglish = async (text) => {
             if (!text || !text.trim()) return '';
             
             const geminiApiKey = "AIzaSyC7WNg3glu9j3AyaIN0U_mtwx6_76vWRX0";
+            // 修正重點：將原本的 models/gemini-1.5-flash 移至 API URL 的路徑中
             const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiApiKey}`;
             
             try {
@@ -340,7 +341,6 @@
                     
                     return data.candidates[0].content.parts[0].text.trim();
                 } else if (data && data.error) {
-                    // 如果 API Key 錯誤、過期、或配額有限制，Gemini 會直接回傳 error 物件
                     console.error("Gemini API Error:", data.error);
                     return `[Gemini 錯誤] ${data.error.message || '未知 API 錯誤'}`;
                 } else {
@@ -918,7 +918,7 @@
                         <div class="col-span-full text-center py-10 bg-white rounded-xl shadow-inner text-gray-500">
                             <i data-lucide="book-open" class="lucide-icon w-12 h-12 mx-auto mb-4 text-gray-300"></i>
                             <p class="text-lg">目前沒有任何文字樣本。</p>
-                            <p class="text-sm">點擊右上角的「新增文字樣本']按鈕開始創建吧！</p>
+                            <p class="text-sm">點擊右上角的「新增文字樣本」按鈕開始創建吧！</p>
                         </div>
                     `;
                 } else if (!userId) {
