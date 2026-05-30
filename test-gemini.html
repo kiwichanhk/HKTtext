@@ -308,13 +308,13 @@
             }
         };
 
-        // ** [已修正網址路徑] 確保 v1beta 正確對接 models/gemini-1.5-flash **
+        // ** [已更正為標準 v1 正式版 API 網址] 徹底解決模型找不到與版本相容性問題 **
         const translateToEnglish = async (text) => {
             if (!text || !text.trim()) return '';
             
             const geminiApiKey = "AIzaSyC7WNg3glu9j3AyaIN0U_mtwx6_76vWRX0";
-            // 修正重點：將原本的 models/gemini-1.5-flash 移至 API URL 的路徑中
-            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiApiKey}`;
+            // 使用穩定正式版 v1 網址
+            const apiUrl = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${geminiApiKey}`;
             
             try {
                 const response = await fetch(apiUrl, {
@@ -332,24 +332,24 @@
                 });
                 
                 const data = await response.json();
-                console.log("Gemini Response Data:", data);
+                console.log("Gemini v1 Response:", data);
 
-                // 嚴格的安全層級屬性檢查，確保每一層都存在才讀取 text 欄位
+                // 安全層級解析防禦
                 if (data && data.candidates && data.candidates[0] && 
                     data.candidates[0].content && data.candidates[0].content.parts && 
                     data.candidates[0].content.parts[0] && data.candidates[0].content.parts[0].text) {
                     
                     return data.candidates[0].content.parts[0].text.trim();
                 } else if (data && data.error) {
-                    console.error("Gemini API Error:", data.error);
-                    return `[Gemini 錯誤] ${data.error.message || '未知 API 錯誤'}`;
+                    console.error("Gemini API Error Response:", data.error);
+                    return `[Gemini 錯誤] ${data.error.message || 'API 拒絕了請求'}`;
                 } else {
-                    console.warn("Gemini 未知格式回應:", data);
-                    return `[翻譯服務忙碌] 請稍後再試。原因: 回傳格式與預期不符。`;
+                    console.warn("Gemini 回傳未知資料格式:", data);
+                    return `[翻譯服務忙碌] 請稍後再試。原因: 接收數據格式不正確。`;
                 }
             } catch (error) {
                 console.error("Translation network error:", error);
-                return "[翻譯失敗] 網絡連線錯誤，請檢查您的網路或 API 設定。";
+                return "[翻譯失敗] 網絡連線異常，請檢查您的網路或 API 設定。";
             }
         };
         
