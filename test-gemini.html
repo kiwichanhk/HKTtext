@@ -308,7 +308,7 @@
             }
         };
 
-        // ** [修正安全解析版 Gemini API] 進行高質量文本翻譯 **
+        // ** [修正版 Gemini API] 加上嚴格的安全解析防禦，防止格式不正確導致報錯 **
         const translateToEnglish = async (text) => {
             if (!text || !text.trim()) return '';
             
@@ -331,23 +331,25 @@
                 });
                 
                 const data = await response.json();
-                
-                // 增加嚴格的安全屬性深度檢查，防止未定義層級崩潰
+                console.log("Gemini Response Data:", data);
+
+                // 嚴格的安全層級屬性檢查，確保每一層都存在才讀取 text 欄位
                 if (data && data.candidates && data.candidates[0] && 
                     data.candidates[0].content && data.candidates[0].content.parts && 
                     data.candidates[0].content.parts[0] && data.candidates[0].content.parts[0].text) {
                     
                     return data.candidates[0].content.parts[0].text.trim();
                 } else if (data && data.error) {
-                    console.error("Gemini API Error Response:", data.error);
-                    return `[Gemini 錯誤] ${data.error.message || 'API 回傳結構發生異常'}`;
+                    // 如果 API Key 錯誤、過期、或配額有限制，Gemini 會直接回傳 error 物件
+                    console.error("Gemini API Error:", data.error);
+                    return `[Gemini 錯誤] ${data.error.message || '未知 API 錯誤'}`;
                 } else {
-                    console.warn("Gemini API 回傳未知格式:", data);
+                    console.warn("Gemini 未知格式回應:", data);
                     return `[翻譯服務忙碌] 請稍後再試。原因: 回傳格式與預期不符。`;
                 }
             } catch (error) {
-                console.error("Translation network/code error:", error);
-                return "[翻譯失敗] 網絡連線異常，請檢查您的網路或 API 設定。";
+                console.error("Translation network error:", error);
+                return "[翻譯失敗] 網絡連線錯誤，請檢查您的網路或 API 設定。";
             }
         };
         
@@ -916,7 +918,7 @@
                         <div class="col-span-full text-center py-10 bg-white rounded-xl shadow-inner text-gray-500">
                             <i data-lucide="book-open" class="lucide-icon w-12 h-12 mx-auto mb-4 text-gray-300"></i>
                             <p class="text-lg">目前沒有任何文字樣本。</p>
-                            <p class="text-sm">點擊右上角的「新增文字樣本」按鈕開始創建吧！</p>
+                            <p class="text-sm">點擊右上角的「新增文字樣本']按鈕開始創建吧！</p>
                         </div>
                     `;
                 } else if (!userId) {
